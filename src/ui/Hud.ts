@@ -52,6 +52,17 @@ export class Hud {
           <button data-speed="2" title="Nhanh (2)">⏩</button>
           <button data-speed="3" title="Rất nhanh (3)">⏭</button>
         </div>
+        <div class="sound">
+          <button class="snd-btn" title="Âm thanh (M để tắt/bật)">🔊</button>
+          <div class="snd-pop panel" hidden>
+            <h4>Âm thanh</h4>
+            <label><span>Âm lượng chung</span><input type="range" min="0" max="100" data-vol="master" /></label>
+            <label><span>🎶 Nhạc nền</span><input type="range" min="0" max="100" data-vol="music" /></label>
+            <label><span>🔨 Hiệu ứng</span><input type="range" min="0" max="100" data-vol="sfx" /></label>
+            <label><span>🍃 Thiên nhiên</span><input type="range" min="0" max="100" data-vol="ambient" /></label>
+            <button class="snd-mute"></button>
+          </div>
+        </div>
       </div>
       <div class="family panel"><h4>Gia đình</h4><div class="cards"></div></div>
       <div class="right-col">
@@ -92,8 +103,11 @@ export class Hud {
     scene.state.setSpeed(0);
     q(intro, '.start').addEventListener('click', () => {
       intro.remove();
+      scene.startAudio();
       scene.state.setSpeed(1);
     });
+
+    this.setupSound();
 
     const cards = q(this.root, '.cards');
     for (const v of scene.villagers) {
@@ -144,9 +158,42 @@ export class Hud {
     this.root.addEventListener('mousedown', (e) => {
       if ((e.target as HTMLElement).closest('button')) e.preventDefault();
     });
+    this.root.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button')) scene.sfx('click');
+    });
 
     scene.state.events.on('log', (msg: string) => this.toast(msg));
     this.update();
+  }
+
+  private setupSound() {
+    const s = this.scene.audioSettings;
+    const btn = q<HTMLButtonElement>(this.root, '.snd-btn');
+    const pop = q(this.root, '.snd-pop');
+    btn.addEventListener('click', () => (pop.hidden = !pop.hidden));
+    document.addEventListener('pointerdown', (e) => {
+      const t = e.target as Node;
+      if (!pop.hidden && !pop.contains(t) && !btn.contains(t)) pop.hidden = true;
+    });
+    for (const input of pop.querySelectorAll<HTMLInputElement>('[data-vol]')) {
+      const key = input.dataset.vol as 'master' | 'music' | 'sfx' | 'ambient';
+      input.value = String(Math.round(s[key] * 100));
+      input.addEventListener('input', () => {
+        s[key] = Number(input.value) / 100;
+        if (s.muted) s.muted = false;
+        this.scene.applyAudio();
+      });
+      // Không giữ focus để phím mũi tên vẫn di chuyển camera.
+      input.addEventListener('change', () => input.blur());
+    }
+    q(pop, '.snd-mute').addEventListener('click', () => this.scene.toggleMute());
+    this.refreshSound();
+  }
+
+  refreshSound() {
+    const muted = this.scene.audioSettings.muted;
+    q(this.root, '.snd-btn').textContent = muted ? '🔇' : '🔊';
+    q(this.root, '.snd-mute').textContent = muted ? '🔊 Bật tiếng' : '🔇 Tắt tiếng';
   }
 
   toast(msg: string) {

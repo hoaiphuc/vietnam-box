@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { SfxId } from '../audio/sfx';
 import { ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE } from '../config';
 import { JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
 import type { FishingSpot, GameScene } from '../scenes/GameScene';
@@ -143,6 +144,7 @@ export class Villager {
       s.xp -= xpNeed(s.level);
       s.level++;
       this.scene.floatText(this.x, this.y - 58, '⭐ Lên cấp!', '#ffe27a');
+      this.scene.sfx('levelUp');
       this.scene.state.log(
         s.level === 1
           ? `${this.name} đã biết ${JOBS[job].name.toLowerCase()} rồi! ${JOBS[job].icon}`
@@ -260,14 +262,20 @@ export class Villager {
     return this.scene.state.isSleepTime() || this.energy < 8 || (this.hunger < 20 && this.scene.hasFood());
   }
 
-  private *workFor(sec: number): Step {
+  /** Làm việc trong `sec` giây; có `sound` thì phát đều đặn mỗi `every` giây. */
+  private *workFor(sec: number, sound?: SfxId, every = 0.55): Step {
     let t = 0;
+    let tick = every * 0.5;
     try {
       while (t < sec) {
         const dt: number = yield;
         t += dt;
         this.working = true;
         this.progress = Math.min(1, t / sec);
+        if (sound && (tick -= dt) <= 0) {
+          tick += every;
+          this.scene.sfx(sound, this.x, this.y);
+        }
         if (this.mustStop()) return false;
       }
       return true;
@@ -320,6 +328,7 @@ export class Villager {
     }
     this.scene.state.add(c.res, c.amount);
     this.scene.floatText(this.x, this.y - 48, `+${c.amount} ${RESOURCES[c.res].icon}`);
+    this.scene.sfx('deposit', this.x, this.y);
     this.carry = null;
   }
 
@@ -361,6 +370,7 @@ export class Villager {
       if (!food) break;
       ate = true;
       this.holding = RESOURCES[food].icon;
+      this.scene.sfx('eat', this.x, this.y);
       yield* this.wait(1.5);
       this.hunger = Math.min(100, this.hunger + (RESOURCES[food].food ?? 0));
     }
@@ -398,8 +408,9 @@ export class Villager {
       this.face(node.x);
       this.status = node.kind === 'tree' ? 'Đang đốn cây 🪓' : 'Đang chặt tre 🪓';
       const dur = (node.kind === 'tree' ? 7 : 5) / this.eff('chat');
-      if (!(yield* this.workFor(dur))) return;
+      if (!(yield* this.workFor(dur, 'chop'))) return;
       node.harvest();
+      this.scene.sfx(node.kind === 'tree' ? 'treeFall' : 'bambooFall', node.x, node.y);
       const bonus = Math.floor(this.skills.chat.level / 3);
       this.carry = { res: 'go', amount: (node.kind === 'tree' ? 4 : 3) + bonus };
       this.gainXp('chat', 4);
@@ -418,8 +429,9 @@ export class Villager {
       if (!stand || !(yield* this.walkTo(stand.x, stand.y))) return;
       this.face(node.x);
       this.status = 'Đang hái chuối 🍌';
-      if (!(yield* this.workFor(3 / this.eff('hai')))) return;
+      if (!(yield* this.workFor(3 / this.eff('hai'), 'rustle', 0.7))) return;
       node.harvest();
+      this.scene.sfx('pick', node.x, node.y);
       this.carry = { res: 'chuoi', amount: 3 + Math.floor(this.skills.hai.level / 3) };
       this.gainXp('hai', 3);
     } finally {
@@ -439,9 +451,11 @@ export class Villager {
       let caught = 0;
       for (let i = 0; i < 3; i++) {
         this.status = 'Đang ngồi câu cá 🎣';
+        this.scene.sfx('cast', this.x, this.y);
         if (!(yield* this.workFor(5 / this.eff('ca')))) break;
         if (Math.random() < 0.4 + 0.05 * this.skills.ca.level) {
           caught++;
+          this.scene.sfx('catch', this.x, this.y);
           this.scene.floatText(this.x, this.y - 48, '🐟', '#fff');
           this.gainXp('ca', 3);
         } else {
@@ -465,9 +479,10 @@ export class Villager {
       let misses = 0;
       let elapsed = 0;
       const dist = () => Phaser.Math.Distance.Between(this.x, this.y, a.x, a.y);
-      while (a.alive && elapsed < 60) {
+      while (a.alive && elapsed < 60 && !this.mustStop()) {
         if (dist() < 20) {
           this.status = `Đang vồ ${a.name}`;
+          this.scene.sfx('pounce', this.x, this.y);
           let t = 0;
           const dur = 0.7 / this.eff('san');
           while (t < dur) {
@@ -482,6 +497,7 @@ export class Villager {
             a.kill();
             this.carry = { res: 'thit', amount: a.meat };
             this.scene.state.stats.hunted++;
+            this.scene.sfx('caught', this.x, this.y);
             this.scene.floatText(this.x, this.y - 50, `Bắt được ${a.name}!`, '#ffe27a');
             this.gainXp('san', a.kind === 'heo' ? 8 : 5);
             return;
@@ -559,7 +575,7 @@ export class Villager {
       while (raw.length) {
         this.holding = RESOURCES[raw[0]].icon;
         this.status = raw[0] === 'thit' ? 'Đang nướng thịt 🍖' : 'Đang nướng cá 🐟';
-        if (!(yield* this.workFor(4 / this.eff('nau')))) return;
+        if (!(yield* this.workFor(4 / this.eff('nau'), 'sizzle', 0.5))) return;
         const out: ResKey = raw.shift() === 'thit' ? 'thitNuong' : 'caNuong';
         const n = Math.random() < this.skills.nau.level * 0.05 ? 2 : 1;
         this.scene.state.add(out, n);
@@ -584,11 +600,16 @@ export class Villager {
     this.status = `Đang xây ${site.def.name.toLowerCase()} 🔨`;
     this.holding = '🔨';
     let acc = 0;
+    let hammer = 0;
     try {
       while (!site.built) {
         const dt: number = yield;
         this.working = true;
         site.addProgress(dt * this.eff('xay'));
+        if ((hammer -= dt) <= 0) {
+          hammer = 0.45;
+          this.scene.sfx('hammer', this.x, this.y);
+        }
         acc += dt;
         if (acc >= 3) {
           acc -= 3;

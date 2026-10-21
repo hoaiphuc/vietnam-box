@@ -12,6 +12,8 @@ async function start() {
     backgroundColor: '#2f4f2a',
     scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
     render: { antialias: true },
+    // Âm thanh tự tổng hợp bằng Web Audio (src/audio), không dùng bộ âm thanh của Phaser.
+    audio: { noAudio: true },
     scene: [GameScene],
   });
 

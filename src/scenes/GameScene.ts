@@ -1,4 +1,8 @@
 import Phaser from 'phaser';
+import { Ambience } from '../audio/Ambience';
+import { AudioEngine, loadAudioSettings, saveAudioSettings } from '../audio/AudioEngine';
+import { Music } from '../audio/Music';
+import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
 import { BUILDINGS, FOOD_ORDER, JOBS, type BuildingId, type JobId, type ResKey } from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
@@ -73,6 +77,14 @@ export class GameScene extends Phaser.Scene {
   homeTile: Pt = { x: 0, y: 0 };
   questDone = new Set<string>();
   hud!: Hud;
+  audioSettings = loadAudioSettings();
+  audio: AudioEngine | null = null;
+
+  private music?: Music;
+  private ambience?: Ambience;
+  private night = 0;
+  private soundTimer = 0;
+  private prox = { water: 0, fire: 0 };
 
   private nodeGrid = new Map<number, ResourceNode>();
   private occupied = new Set<number>();
@@ -134,6 +146,71 @@ export class GameScene extends Phaser.Scene {
 
     this.hud = new Hud(this);
     this.state.log('Gia đình nhỏ vừa về lập nghiệp bên bờ sông 🌾');
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+      this.music?.stop();
+      this.audio?.dispose();
+    });
+  }
+
+  // ------------------------------------------------------------ âm thanh
+
+  /** Trình duyệt chỉ cho phát âm thanh sau khi người chơi bấm — gọi từ nút "Bắt đầu". */
+  startAudio() {
+    if (this.audio) return;
+    this.audio = new AudioEngine(this.audioSettings);
+    this.music = new Music(this.audio);
+    this.ambience = new Ambience(this.audio);
+    this.music.start();
+  }
+
+  applyAudio() {
+    saveAudioSettings(this.audioSettings);
+    this.audio?.apply();
+    this.hud.refreshSound();
+  }
+
+  toggleMute() {
+    this.audioSettings.muted = !this.audioSettings.muted;
+    this.applyAudio();
+  }
+
+  /** Phát hiệu ứng; có toạ độ thì nhỏ dần theo khoảng cách tới tâm màn hình và lệch trái/phải. */
+  sfx(id: SfxId, x?: number, y?: number, vol = 1) {
+    if (!this.audio) return;
+    if (x === undefined || y === undefined) {
+      this.audio.play(id, vol);
+      return;
+    }
+    const cam = this.cameras.main;
+    const v = cam.worldView;
+    const radius = Math.max(v.width, v.height) * 0.6;
+    const d = Math.hypot(x - v.centerX, y - v.centerY);
+    const g = Phaser.Math.Clamp(1 - (d - radius * 0.5) / radius, 0, 1) * Phaser.Math.Clamp(cam.zoom / 1.2, 0.5, 1);
+    if (g <= 0.02) return;
+    const pan = Phaser.Math.Clamp((x - v.centerX) / (v.width / 2), -1, 1) * 0.6;
+    this.audio.play(id, vol * g, pan);
+  }
+
+  /** Độ gần sông và đống lửa so với tâm màn hình (0..1). */
+  private updateProximity() {
+    const v = this.cameras.main.worldView;
+    const radius = Math.max(v.width, v.height) * 0.6;
+    const cx = v.centerX;
+    const cy = v.centerY;
+    let dw = Infinity;
+    for (const t of this.waterTiles) {
+      const d = (t.x * TILE + TILE / 2 - cx) ** 2 + (t.y * TILE + TILE / 2 - cy) ** 2;
+      if (d < dw) dw = d;
+    }
+    let df = Infinity;
+    for (const b of this.buildings) {
+      if (b.id !== 'lua' || !b.built) continue;
+      const d = (b.px - cx) ** 2 + (b.py - cy) ** 2;
+      if (d < df) df = d;
+    }
+    const prox = (d2: number) => Phaser.Math.Clamp(1 - (Math.sqrt(d2) - radius * 0.3) / radius, 0, 1);
+    this.prox.water = prox(dw);
+    this.prox.fire = prox(df);
   }
 
   // ------------------------------------------------------------ dựng thế giới
@@ -365,6 +442,7 @@ export class GameScene extends Phaser.Scene {
   onBuilt(b: Building) {
     this.state.stats.built[b.id]++;
     this.state.log(`Đã xây xong ${b.def.name}! ${b.def.icon}`);
+    this.sfx('built');
     this.floatText(b.px, b.py - b.sprite.height, `${b.def.name} hoàn thành!`, '#ffe27a');
   }
 
@@ -416,6 +494,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.state.pay(def.cost);
     this.placeBuilding(id, x, y, false);
+    this.sfx('place');
     if (!this.villagers.some((v) => v.job === 'xay')) {
       this.state.log(`Đã đặt móng ${def.name}. Hãy giao việc Xây dựng 🔨 cho ai đó!`);
     } else {
@@ -426,16 +505,25 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ người dân
 
+  /** Chọn người dân; camera sẽ bám theo họ cho tới khi bỏ chọn hoặc tự kéo camera. */
   select(v: Villager | null) {
     this.selected?.setSelected(false);
     this.selected = v;
     v?.setSelected(true);
+    if (v) this.sfx('select');
+    const cam = this.cameras.main;
+    if (v) cam.startFollow(v, false, 0.08, 0.08);
+    else cam.stopFollow();
     this.hud.renderDetail();
   }
 
   focus(v: Villager) {
     this.select(v);
-    this.cameras.main.pan(v.x, v.y, 500, 'Sine.easeInOut');
+  }
+
+  /** Người chơi tự di chuyển camera thì ngừng bám theo (vẫn giữ người đang chọn). */
+  private releaseFollow() {
+    this.cameras.main.stopFollow();
   }
 
   assignJob(v: Villager, job: JobId) {
@@ -480,6 +568,7 @@ export class GameScene extends Phaser.Scene {
       if (!p.isDown || !this.downOnCanvas) return;
       if (!this.dragging && Phaser.Math.Distance.Between(p.x, p.y, this.downPos.x, this.downPos.y) > 6) this.dragging = true;
       if (this.dragging) {
+        this.releaseFollow();
         cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoom;
         cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoom;
       }
@@ -517,12 +606,14 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-TWO', () => this.state.setSpeed(2));
     kb.on('keydown-THREE', () => this.state.setSpeed(3));
     kb.on('keydown-ESC', () => (this.buildMode ? this.cancelBuild() : this.select(null)));
+    kb.on('keydown-M', () => this.toggleMute());
   }
 
   private panKeys(dt: number) {
     const cam = this.cameras.main;
     const k = this.keys;
     const sp = (600 * dt) / cam.zoom;
+    if ([k.A, k.D, k.W, k.S, k.LEFT, k.RIGHT, k.UP, k.DOWN].some((key) => key.isDown)) this.releaseFollow();
     if (k.A.isDown || k.LEFT.isDown) cam.scrollX -= sp;
     if (k.D.isDown || k.RIGHT.isDown) cam.scrollX += sp;
     if (k.W.isDown || k.UP.isDown) cam.scrollY -= sp;
@@ -557,6 +648,7 @@ export class GameScene extends Phaser.Scene {
           if (!this.questDone.has(q.id) && q.check(this)) {
             this.questDone.add(q.id);
             this.state.log(`✅ Hoàn thành mục tiêu: ${q.text}`);
+            this.sfx('quest');
           }
         }
       }
@@ -564,6 +656,16 @@ export class GameScene extends Phaser.Scene {
 
     this.updateLighting();
     this.updateGhost();
+
+    if (this.ambience && this.music) {
+      this.soundTimer += realDt;
+      if (this.soundTimer > 0.25) {
+        this.soundTimer = 0;
+        this.updateProximity();
+      }
+      this.ambience.update(realDt, { hour: this.state.hour, night: this.night, ...this.prox });
+      this.music.setNight(this.night);
+    }
 
     this.hudTimer += realDt;
     if (this.hudTimer > 0.2) {
@@ -576,6 +678,7 @@ export class GameScene extends Phaser.Scene {
     const h = this.state.hour;
     const dark = darknessAt(h);
     const night = dark / MAX_DARK;
+    this.night = night;
     this.darkness.setAlpha(dark);
     this.warmth.setAlpha(warmthAt(h));
     for (const b of this.buildings) b.updateLight(night, this.realTime);

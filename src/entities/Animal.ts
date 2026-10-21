@@ -65,6 +65,11 @@ export class Animal {
     this.fleeT = 1.1 + Math.random() * 0.5;
     this.fleeCd = 2.6 + Math.random();
     this.target = null;
+    this.call();
+  }
+
+  private call(vol = 1) {
+    this.scene.sfx(this.kind === 'ga' ? 'cluck' : 'grunt', this.x, this.y, vol);
   }
 
   update(dt: number) {
@@ -92,6 +97,7 @@ export class Animal {
       moving = true;
     } else if (this.idleT > 0) {
       this.idleT -= dt;
+      if (Math.random() < dt * (this.kind === 'ga' ? 0.06 : 0.025)) this.call(0.5);
     } else if (this.target) {
       const dx = this.target.x - this.x;
       const dy = this.target.y - this.y;
