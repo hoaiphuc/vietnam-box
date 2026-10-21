@@ -11,6 +11,7 @@ import { ResourceNode } from '../entities/ResourceNode';
 import { Villager, type VillagerDef } from '../entities/Villager';
 import { DREAM_COST, POWERS, WISHES, type PowerId, type WishType } from '../powers';
 import { GameState } from '../state';
+import type { StoryShot } from '../story';
 import { rollTraits, type TraitId } from '../traits';
 import { MARRY_AGE, palette, randomName, randomPalette, type Gender, type Palette, type Stage } from '../life';
 import { Hud } from '../ui/Hud';
@@ -62,6 +63,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Quyền năng đang chờ chọn chỗ / chọn người. */
   powerMode: PowerId | null = null;
+  /** Đang chiếu đoạn mở đầu / màn giới thiệu: khoá phím tắt và di chuyển camera. */
+  cutscene = false;
 
   private music?: Music;
   private ambience?: Ambience;
@@ -737,6 +740,35 @@ export class GameScene extends Phaser.Scene {
   panTo(x: number, y: number) {
     this.select(null);
     this.cameras.main.pan(x, y, 600, 'Sine.easeInOut');
+  }
+
+  /**
+   * Góc máy cho đoạn mở đầu: 'land' — đặt ngay ở khúc sông vắng cách làng một quãng,
+   * 'family' — lia chậm vào gia đình, 'home' — trả về góc nhìn chơi bình thường.
+   */
+  storyShot(shot: StoryShot | 'home') {
+    const cam = this.cameras.main;
+    const hx = this.homeTile.x * TILE;
+    const hy = this.homeTile.y * TILE;
+    if (shot === 'land') {
+      // Khúc sông gần nhất mà làng nằm hẳn ngoài khung hình.
+      const zoom = 0.85;
+      const halfW = cam.width / zoom / 2 + TILE * 3;
+      const halfH = cam.height / zoom / 2 + TILE * 3;
+      const dist = (t: Pt) => Math.hypot(t.x - this.homeTile.x, t.y - this.homeTile.y);
+      const out = this.waterTiles
+        .filter((t) => Math.abs(t.x * TILE - hx) > halfW || Math.abs(t.y * TILE - hy) > halfH)
+        .sort((a, b) => dist(a) - dist(b));
+      const t = out.length ? pick(out.slice(0, 20)) : this.homeTile;
+      cam.setZoom(zoom);
+      cam.centerOn(t.x * TILE, t.y * TILE);
+    } else if (shot === 'family') {
+      cam.pan(hx, hy, 2600, 'Sine.easeInOut', true);
+      cam.zoomTo(1.9, 2600, 'Sine.easeInOut', true);
+    } else {
+      cam.pan(hx, hy, 900, 'Sine.easeInOut', true);
+      cam.zoomTo(1.4, 900, 'Sine.easeInOut', true);
+    }
   }
 
   /** Người chơi tự di chuyển camera thì ngừng bám theo (vẫn giữ người đang chọn). */
@@ -1457,12 +1489,13 @@ export class GameScene extends Phaser.Scene {
     });
 
     const kb = this.input.keyboard!;
-    kb.on('keydown-SPACE', () => this.state.togglePause());
-    kb.on('keydown-ONE', () => this.state.setSpeed(1));
-    kb.on('keydown-TWO', () => this.state.setSpeed(2));
-    kb.on('keydown-THREE', () => this.state.setSpeed(3));
-    kb.on('keydown-FOUR', () => this.state.setSpeed(5));
+    kb.on('keydown-SPACE', () => !this.cutscene && this.state.togglePause());
+    kb.on('keydown-ONE', () => !this.cutscene && this.state.setSpeed(1));
+    kb.on('keydown-TWO', () => !this.cutscene && this.state.setSpeed(2));
+    kb.on('keydown-THREE', () => !this.cutscene && this.state.setSpeed(3));
+    kb.on('keydown-FOUR', () => !this.cutscene && this.state.setSpeed(5));
     kb.on('keydown-ESC', () => {
+      if (this.cutscene) return;
       if (this.powerMode) this.cancelPower();
       else if (this.buildMode) this.cancelBuild();
       else this.select(null);
@@ -1471,6 +1504,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private panKeys(dt: number) {
+    if (this.cutscene) return;
     const cam = this.cameras.main;
     const k = this.keys;
     const sp = (600 * dt) / cam.zoom;

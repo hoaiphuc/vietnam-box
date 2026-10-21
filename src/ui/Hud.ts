@@ -16,7 +16,9 @@ import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
 import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
 import type { GameScene } from '../scenes/GameScene';
 import type { HistoryEntry } from '../state';
+import { OPENING } from '../story';
 import { TRAITS } from '../traits';
+import { playStory } from './Story';
 
 /** Trạng thái thu lại / mở ra của các bảng (localStorage). */
 const FOLD_KEY = 'langque.folds';
@@ -195,13 +197,18 @@ export class Hud {
     this.speedBtns = [...this.root.querySelectorAll<HTMLButtonElement>('[data-speed]')];
     for (const b of this.speedBtns) b.addEventListener('click', () => scene.state.setSpeed(Number(b.dataset.speed)));
 
+    // Đoạn mở đầu trước, rồi mới tới màn hướng dẫn; game đứng yên cho tới khi bấm "Bắt đầu".
     const intro = q(this.root, '.intro');
     scene.state.setSpeed(0);
+    scene.cutscene = true;
+    intro.hidden = true;
     q(intro, '.start').addEventListener('click', () => {
       intro.remove();
+      scene.cutscene = false;
       scene.startAudio();
       scene.state.setSpeed(1);
     });
+    playStory(this.root, scene, OPENING).then(() => (intro.hidden = false));
 
     this.setupSound();
 
