@@ -7,6 +7,8 @@ export interface AmbienceInfo {
   /** Độ gần sông / đống lửa so với tâm màn hình, 0..1. */
   water: number;
   fire: number;
+  /** Độ lớn cơn mưa, 0..1. */
+  rain: number;
 }
 
 const r = (a: number, b: number) => a + Math.random() * (b - a);
@@ -18,6 +20,8 @@ export class Ambience {
   private riverHi: GainNode;
   private wind: GainNode;
   private roar: GainNode;
+  private rain: GainNode;
+  private rainLow: GainNode;
   private timers = { cricket: 0, frog: 2, bird: 1, dove: 6, crackle: 0 };
   private lastHour = -1;
 
@@ -26,6 +30,8 @@ export class Ambience {
     this.riverHi = this.loop(false, 'bandpass', 1800);
     this.wind = this.loop(false, 'bandpass', 500, 0.4);
     this.roar = this.loop(true, 'lowpass', 260);
+    this.rain = this.loop(false, 'bandpass', 3500, 0.5);
+    this.rainLow = this.loop(true, 'lowpass', 900);
 
     // Gió thổi từng cơn.
     const lfo = e.ctx.createOscillator();
@@ -64,24 +70,10 @@ export class Ambience {
     set(this.riverHi, info.water * 0.04);
     set(this.wind, 0.025 + 0.015 * day);
     set(this.roar, info.fire * 0.22);
+    set(this.rain, info.rain * 0.12);
+    set(this.rainLow, info.rain * 0.35);
 
     const tm = this.timers;
-    if (info.night > 0.3 && (tm.cricket -= dt) <= 0) {
-      tm.cricket = r(0.2, 0.6);
-      this.cricket(info.night);
-    }
-    if (info.night > 0.4 && info.water > 0.1 && (tm.frog -= dt) <= 0) {
-      tm.frog = r(1.2, 3.5);
-      this.frog(info.night * info.water);
-    }
-    if (day > 0.6 && (tm.bird -= dt) <= 0) {
-      tm.bird = r(1.5, 5);
-      this.bird(day);
-    }
-    if (day > 0.6 && (tm.dove -= dt) <= 0) {
-      tm.dove = r(9, 18);
-      this.dove(day);
-    }
     if (info.fire > 0.05 && (tm.crackle -= dt) <= 0) {
       tm.crackle = r(0.03, 0.25);
       this.crackle(info.fire);
@@ -89,9 +81,29 @@ export class Ambience {
 
     // Gà gáy lúc tờ mờ sáng.
     const h = info.hour;
-    if (this.lastHour >= 0 && this.lastHour < 5.3 && h >= 5.3 && h < 7) this.rooster();
-    if (this.lastHour >= 0 && this.lastHour < 6.1 && h >= 6.1 && h < 7) this.rooster();
+    const calm = info.rain < 0.5;
+    if (calm && this.lastHour >= 0 && this.lastHour < 5.3 && h >= 5.3 && h < 7) this.rooster();
+    if (calm && this.lastHour >= 0 && this.lastHour < 6.1 && h >= 6.1 && h < 7) this.rooster();
     this.lastHour = h;
+
+    // Trời mưa thì chim, dế im tiếng — riêng ếch thì kêu to hơn.
+    if (calm && info.night > 0.3 && (tm.cricket -= dt) <= 0) {
+      tm.cricket = r(0.2, 0.6);
+      this.cricket(info.night);
+    }
+    const frogs = Math.max(info.night, info.rain) * info.water;
+    if (frogs > 0.1 && (tm.frog -= dt) <= 0) {
+      tm.frog = r(1.2, 3.5) * (info.rain > 0.5 ? 0.5 : 1);
+      this.frog(frogs);
+    }
+    if (calm && day > 0.6 && (tm.bird -= dt) <= 0) {
+      tm.bird = r(1.5, 5);
+      this.bird(day);
+    }
+    if (calm && day > 0.6 && (tm.dove -= dt) <= 0) {
+      tm.dove = r(9, 18);
+      this.dove(day);
+    }
   }
 
   private cricket(level: number) {

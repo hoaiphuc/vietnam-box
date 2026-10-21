@@ -21,7 +21,7 @@ export const RES_ORDER: ResKey[] = ['go', 'chuoi', 'thit', 'ca', 'thitNuong', 'c
 /** Thứ tự ưu tiên khi ăn. */
 export const FOOD_ORDER: ResKey[] = ['thitNuong', 'caNuong', 'chuoi'];
 
-export type JobId = 'nghi' | 'chat' | 'san' | 'ca' | 'hai' | 'nau' | 'xay';
+export type JobId = 'nghi' | 'chat' | 'san' | 'ca' | 'hai' | 'nau' | 'xay' | 'le';
 
 export const JOBS: Record<JobId, { name: string; icon: string; desc: string }> = {
   nghi: { name: 'Nghỉ ngơi', icon: '🍵', desc: 'Thong thả dạo quanh nhà, hồi sức.' },
@@ -31,12 +31,16 @@ export const JOBS: Record<JobId, { name: string; icon: string; desc: string }> =
   hai: { name: 'Hái lượm', icon: '🧺', desc: 'Hái chuối quanh làng và ven sông.' },
   nau: { name: 'Nướng đồ ăn', icon: '🔥', desc: 'Nướng thịt, cá bên đống lửa.' },
   xay: { name: 'Xây dựng', icon: '🔨', desc: 'Dựng nhà, đóng lửa, làm kho.' },
+  le: { name: 'Thắp hương', icon: '🙏', desc: 'Ra miếu thắp hương, cầu khấn Thành Hoàng.' },
 };
 
+/** Các việc có thể báo mộng. */
 export const JOB_ORDER: JobId[] = ['nghi', 'chat', 'san', 'ca', 'hai', 'nau', 'xay'];
+/** Mọi hoạt động dân làng tự cân nhắc. */
+export const ACT_ORDER: JobId[] = [...JOB_ORDER, 'le'];
 export const SKILL_JOBS: JobId[] = ['chat', 'san', 'ca', 'hai', 'nau', 'xay'];
 
-export type BuildingId = 'lua' | 'nha' | 'kho';
+export type BuildingId = 'lua' | 'nha' | 'kho' | 'mieu';
 
 export interface BuildingDef {
   name: string;
@@ -53,6 +57,7 @@ export interface BuildingDef {
   storage?: boolean;
   home?: boolean;
   cook?: boolean;
+  shrine?: boolean;
 }
 
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
@@ -93,6 +98,18 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     storage: true,
     home: true,
   },
+  mieu: {
+    name: 'Miếu Thành Hoàng',
+    icon: '⛩️',
+    desc: 'Nơi dân làng thắp hương, cầu khấn. Mỗi nén hương thêm điểm Phúc.',
+    w: 1,
+    h: 1,
+    cost: { go: 15 },
+    work: 14,
+    tex: 'mieu',
+    oy: -2,
+    shrine: true,
+  },
 };
 
-export const BUILD_ORDER: BuildingId[] = ['lua', 'kho', 'nha'];
+export const BUILD_ORDER: BuildingId[] = ['lua', 'mieu', 'kho', 'nha'];

@@ -3,31 +3,38 @@ import { TILE } from '../config';
 import { BUILDINGS, type BuildingDef, type BuildingId } from '../data';
 import type { GameScene } from '../scenes/GameScene';
 
+/** built: đã xây xong · site: đang xây · planned: Thành Hoàng mới đánh dấu, chờ làng đủ gỗ. */
+export type BuildState = 'built' | 'site' | 'planned';
+
 export class Building {
   readonly def: BuildingDef;
   built: boolean;
+  planned: boolean;
   progress = 0;
   readonly sprite: Phaser.GameObjects.Image;
   private bar: Phaser.GameObjects.Graphics;
   private glow?: Phaser.GameObjects.Image;
   private flame?: Phaser.GameObjects.Image;
   private windows: Phaser.GameObjects.Image[] = [];
+  private fx: Phaser.GameObjects.GameObject[] = [];
 
   constructor(
     private scene: GameScene,
     readonly id: BuildingId,
     readonly tx: number,
     readonly ty: number,
-    built: boolean,
+    state: BuildState,
   ) {
     this.def = BUILDINGS[id];
-    this.built = built;
+    this.built = state === 'built';
+    this.planned = state === 'planned';
     this.sprite = scene.add
       .image(this.px, this.py + this.def.oy, this.def.tex)
       .setOrigin(0.5, 1)
       .setDepth(this.py);
     this.bar = scene.add.graphics().setDepth(this.py + 1);
-    if (built) this.activate();
+    if (this.built) this.activate();
+    else if (this.planned) this.sprite.setAlpha(0.4).setTint(0x9fc8ff);
     else this.sprite.setAlpha(0.45).setTint(0xcbb48a);
     this.drawBar();
   }
@@ -49,11 +56,27 @@ export class Building {
     return out;
   }
 
+  /** Trưởng làng bỏ gỗ ra: chỗ quy hoạch thành công trường. */
+  fund() {
+    this.planned = false;
+    this.sprite.setAlpha(0.45).setTint(0xcbb48a);
+    this.drawBar();
+  }
+
   addProgress(amount: number) {
-    if (this.built) return;
+    if (this.built || this.planned) return;
     this.progress += amount;
     if (this.progress >= this.def.work) this.complete();
     this.drawBar();
+  }
+
+  destroy() {
+    this.sprite.destroy();
+    this.bar.destroy();
+    this.glow?.destroy();
+    this.flame?.destroy();
+    for (const w of this.windows) w.destroy();
+    for (const f of this.fx) f.destroy();
   }
 
   private complete() {
@@ -69,6 +92,22 @@ export class Building {
     const g = this.bar;
     g.clear();
     if (this.built) return;
+    if (this.planned) {
+      const x = this.tx * TILE;
+      const y = this.ty * TILE;
+      const w = this.def.w * TILE;
+      const h = this.def.h * TILE;
+      g.lineStyle(1.5, 0x9fc8ff, 0.9);
+      for (let i = 0; i < w; i += 8) {
+        g.lineBetween(x + i, y, x + Math.min(w, i + 4), y);
+        g.lineBetween(x + i, y + h, x + Math.min(w, i + 4), y + h);
+      }
+      for (let i = 0; i < h; i += 8) {
+        g.lineBetween(x, y + i, x, y + Math.min(h, i + 4));
+        g.lineBetween(x + w, y + i, x + w, y + Math.min(h, i + 4));
+      }
+      return;
+    }
     const w = 40;
     const x = this.px - w / 2;
     const y = this.py + this.def.oy - this.sprite.height - 10;
@@ -92,27 +131,29 @@ export class Building {
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
-      s.add
-        .particles(fx, fy - 12, 'smoke', {
-          lifespan: 2400,
-          frequency: 420,
-          speedY: { min: -26, max: -14 },
-          speedX: { min: -5, max: 8 },
-          scale: { start: 0.5, end: 1.9 },
-          alpha: { start: 0.32, end: 0 },
-        })
-        .setDepth(this.py + 2);
-      s.add
-        .particles(fx, fy - 6, 'spark', {
-          lifespan: { min: 500, max: 900 },
-          frequency: 260,
-          speedY: { min: -70, max: -35 },
-          speedX: { min: -15, max: 15 },
-          scale: { start: 1, end: 0 },
-          alpha: { start: 1, end: 0 },
-          blendMode: 'ADD',
-        })
-        .setDepth(50002);
+      this.fx.push(
+        s.add
+          .particles(fx, fy - 12, 'smoke', {
+            lifespan: 2400,
+            frequency: 420,
+            speedY: { min: -26, max: -14 },
+            speedX: { min: -5, max: 8 },
+            scale: { start: 0.5, end: 1.9 },
+            alpha: { start: 0.32, end: 0 },
+          })
+          .setDepth(this.py + 2),
+        s.add
+          .particles(fx, fy - 6, 'spark', {
+            lifespan: { min: 500, max: 900 },
+            frequency: 260,
+            speedY: { min: -70, max: -35 },
+            speedX: { min: -15, max: 15 },
+            scale: { start: 1, end: 0 },
+            alpha: { start: 1, end: 0 },
+            blendMode: 'ADD',
+          })
+          .setDepth(50002),
+      );
     }
     if (this.id === 'nha') {
       const left = this.px - 36;
@@ -128,6 +169,31 @@ export class Building {
             .setDepth(50001),
         );
       }
+    }
+    if (this.id === 'mieu') {
+      const top = this.py + this.def.oy - 57;
+      // Khói hương nghi ngút.
+      this.fx.push(
+        s.add
+          .particles(this.px, top + 32, 'smoke', {
+            lifespan: 2600,
+            frequency: 700,
+            speedY: { min: -14, max: -8 },
+            speedX: { min: -3, max: 3 },
+            scale: { start: 0.15, end: 0.8 },
+            alpha: { start: 0.4, end: 0 },
+          })
+          .setDepth(this.py + 2),
+      );
+      this.windows.push(
+        s.add
+          .image(this.px, top + 36, 'glow')
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setTint(0xff7a3a)
+          .setScale(0.55)
+          .setAlpha(0)
+          .setDepth(50001),
+      );
     }
   }
 

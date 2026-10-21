@@ -94,6 +94,38 @@ h4 {
   font-variant-numeric: tabular-nums;
 }
 
+.phuc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fff6dc;
+  border: 1px solid #e8c877;
+  cursor: help;
+}
+
+.phuc-bar {
+  width: 70px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f1e3bd;
+  overflow: hidden;
+}
+
+.phuc-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e9a23b, #ffd36a);
+  transition: width 0.3s;
+}
+
+.phuc-text {
+  min-width: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
 .resources {
   display: flex;
   gap: 6px;
@@ -307,44 +339,120 @@ h4 {
   max-height: calc(100% - 160px);
 }
 
-.quests {
+.history {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 110px;
+  max-height: 280px;
+  padding: 10px 6px 8px 12px;
+}
+
+/* Đang xem một người thì thu nhỏ sử làng để nhường chỗ. */
+.right-col:has(.detail:not([hidden])) .history {
+  max-height: 170px;
+}
+
+.hlist {
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+}
+
+.hday {
+  position: sticky;
+  top: 0;
+  margin: 6px 0 4px;
+  padding: 2px 0;
+  background: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.hday:first-child {
+  margin-top: 0;
+}
+
+.hitem {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 6px;
+  padding: 4px 6px;
+  border-left: 3px solid var(--accent-soft);
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hitem time {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+
+.hitem.loc {
+  cursor: pointer;
+}
+
+.hitem.loc:hover {
+  background: #fff4dc;
+  border-left-color: var(--accent);
+}
+
+.detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.wishes {
   padding: 10px 12px;
 }
 
-.quests ul {
+.wishes ul {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 3px;
+  gap: 5px;
 }
 
-.quests li {
-  padding-left: 22px;
-  position: relative;
-  font-size: 12.5px;
+.wishes li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: #fff6dc;
+  border: 1px solid #e8c877;
+  cursor: pointer;
+  font-size: 12px;
+  transition: transform 0.15s;
 }
 
-.quests li::before {
-  content: '○';
-  position: absolute;
-  left: 4px;
+.wishes li:hover {
+  transform: translateX(-2px);
+  border-color: var(--accent);
+}
+
+.wa {
+  font-size: 20px;
+}
+
+.wt b {
+  display: block;
+  font-size: 11px;
   color: var(--ink-soft);
 }
 
-.quests li.done {
-  color: var(--ink-soft);
-  text-decoration: line-through;
-}
-
-.quests li.done::before {
-  content: '✔';
-  color: var(--green);
-}
-
-.detail {
-  padding: 12px;
-  overflow-y: auto;
+.wp {
+  font-size: 18px;
 }
 
 .dhead {
@@ -630,15 +738,22 @@ h4 {
 
 .bb-items {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+
+.bb-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--line);
 }
 
 .bitem {
   display: grid;
   justify-items: center;
   gap: 1px;
-  min-width: 84px;
-  padding: 6px 10px;
+  min-width: 74px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -666,6 +781,7 @@ h4 {
 .bn {
   font-weight: 600;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .bc {
@@ -675,7 +791,7 @@ h4 {
 
 .hint {
   position: absolute;
-  bottom: 100px;
+  bottom: 120px;
   left: 50%;
   transform: translateX(-50%);
   padding: 6px 14px;
@@ -690,7 +806,7 @@ h4 {
 .toasts {
   position: absolute;
   left: 10px;
-  bottom: 10px;
+  bottom: 120px;
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -6,10 +6,10 @@ import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
 import { BUILDINGS, FOOD_ORDER, JOBS, RESOURCES, type BuildingId, type JobId, type ResKey } from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
-import { Building } from '../entities/Building';
+import { Building, type BuildState } from '../entities/Building';
 import { ResourceNode } from '../entities/ResourceNode';
 import { Villager, type VillagerDef } from '../entities/Villager';
-import { QUESTS } from '../quests';
+import { DREAM_COST, POWERS, WISHES, type PowerId, type WishType } from '../powers';
 import { GameState } from '../state';
 import { rollTraits, type TraitId } from '../traits';
 import { Hud } from '../ui/Hud';
@@ -77,14 +77,22 @@ export class GameScene extends Phaser.Scene {
   selected: Villager | null = null;
   buildMode: BuildingId | null = null;
   homeTile: Pt = { x: 0, y: 0 };
-  questDone = new Set<string>();
   hud!: Hud;
   audioSettings = loadAudioSettings();
   audio: AudioEngine | null = null;
 
+  /** Quyền năng đang chờ chọn chỗ / chọn người. */
+  powerMode: PowerId | null = null;
+
   private music?: Music;
   private ambience?: Ambience;
   private night = 0;
+  private rainLevel = 0;
+  private wasRaining = false;
+  private rainGfx!: Phaser.GameObjects.Graphics;
+  private rainShade!: Phaser.GameObjects.Rectangle;
+  private drops: { u: number; v: number; len: number; speed: number }[] = [];
+  private ripples: Phaser.GameObjects.Image[] = [];
   private soundTimer = 0;
   private prox = { water: 0, fire: 0 };
 
@@ -103,7 +111,6 @@ export class GameScene extends Phaser.Scene {
   private dragging = false;
   private downPos = { x: 0, y: 0 };
   private hudTimer = 0;
-  private questTimer = 0;
   private respawnTimer = 0;
   private planTimer = 0;
   private realTime = 0;
@@ -132,7 +139,7 @@ export class GameScene extends Phaser.Scene {
 
     const v = data.village;
     this.homeTile = { x: v.x, y: v.y + 1 };
-    this.placeBuilding('nha', v.x - 1, v.y - 2, true);
+    this.placeBuilding('nha', v.x - 1, v.y - 2, 'built');
     FAMILY.forEach((d, i) => {
       const def: VillagerDef = { ...d, traits: rollTraits(d.traits, 1) };
       this.villagers.push(new Villager(this, def, v.x - 1 + i, v.y + 1));
@@ -143,6 +150,11 @@ export class GameScene extends Phaser.Scene {
     this.warmth = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0xff8a3d).setOrigin(0).setAlpha(0).setDepth(50000);
     this.createFireflies();
     this.ghostGfx = this.add.graphics().setDepth(49000);
+    this.rainShade = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x2a3a52).setOrigin(0).setAlpha(0).setDepth(50004);
+    this.rainGfx = this.add.graphics().setDepth(50005);
+    for (let i = 0; i < 220; i++) {
+      this.drops.push({ u: Math.random(), v: Math.random(), len: 10 + Math.random() * 10, speed: 0.9 + Math.random() * 0.6 });
+    }
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
@@ -151,7 +163,7 @@ export class GameScene extends Phaser.Scene {
     this.setupInput();
 
     this.hud = new Hud(this);
-    this.state.log('Gia đình nhỏ vừa về lập nghiệp bên bờ sông 🌾');
+    this.state.log('🌾 Gia đình Bố Tám, Mẹ Lan và Bé Na về lập nghiệp bên bờ sông', { x: v.x * TILE, y: v.y * TILE });
     this.events.once(Phaser.Scenes.Events.DESTROY, () => {
       this.music?.stop();
       this.audio?.dispose();
@@ -257,6 +269,7 @@ export class GameScene extends Phaser.Scene {
     const count = Math.min(70, Math.floor(this.waterTiles.length / 4));
     for (let i = 0; i < count; i++) {
       const img = this.add.image(0, 0, 'ripple').setAlpha(0).setDepth(-500);
+      this.ripples.push(img);
       const run = () => {
         const t = Phaser.Utils.Array.GetRandom(this.waterTiles);
         img.setPosition(t.x * TILE + Phaser.Math.Between(4, 28), t.y * TILE + Phaser.Math.Between(4, 28));
@@ -343,7 +356,7 @@ export class GameScene extends Phaser.Scene {
     return this.nearest(this.buildings.filter((b) => b.built && b.id === id), x, y, this.bPos);
   }
   nearestSite(x: number, y: number) {
-    return this.nearest(this.buildings.filter((b) => !b.built), x, y, this.bPos);
+    return this.nearest(this.buildings.filter((b) => !b.built && !b.planned), x, y, this.bPos);
   }
   findNode(kinds: NodeKind[], x: number, y: number) {
     return this.nearest(
@@ -415,8 +428,8 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ công trình
 
-  placeBuilding(id: BuildingId, tx: number, ty: number, built: boolean) {
-    const b = new Building(this, id, tx, ty, built);
+  placeBuilding(id: BuildingId, tx: number, ty: number, state: BuildState) {
+    const b = new Building(this, id, tx, ty, state);
     for (const t of b.tiles()) {
       const node = this.nodeGrid.get(t.y * MAP_W + t.x);
       if (node) this.removeNode(node);
@@ -447,13 +460,27 @@ export class GameScene extends Phaser.Scene {
 
   onBuilt(b: Building) {
     this.state.stats.built[b.id]++;
-    this.state.log(`Đã xây xong ${b.def.name}! ${b.def.icon}`);
+    this.state.log(`${b.def.icon} Đã xây xong ${b.def.name}!`, { x: b.px, y: b.py });
     this.sfx('built');
     this.floatText(b.px, b.py - b.sprite.height, `${b.def.name} hoàn thành!`, '#ffe27a');
   }
 
+  private removeBuilding(b: Building) {
+    b.destroy();
+    this.buildings.splice(this.buildings.indexOf(b), 1);
+    for (const t of b.tiles()) this.occupied.delete(t.y * MAP_W + t.x);
+  }
+
+  private buildingAt(wx: number, wy: number) {
+    const tx = Math.floor(wx / TILE);
+    const ty = Math.floor(wy / TILE);
+    return this.buildings.find((b) => tx >= b.tx && tx < b.tx + b.def.w && ty >= b.ty && ty < b.ty + b.def.h) ?? null;
+  }
+
+  /** Chế độ quy hoạch: đánh dấu chỗ muốn xây, trưởng làng sẽ cho xây khi đủ gỗ. */
   startBuild(id: BuildingId) {
     this.cancelBuild();
+    this.cancelPower();
     this.buildMode = id;
     this.ghost = this.add.image(0, 0, BUILDINGS[id].tex).setOrigin(0.5, 1).setAlpha(0.7).setDepth(49001);
     this.hud.refresh();
@@ -468,6 +495,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateGhost() {
+    if (this.powerMode) return this.updatePowerGhost();
     if (!this.buildMode || !this.ghost) return;
     const def = BUILDINGS[this.buildMode];
     const p = this.input.activePointer;
@@ -475,34 +503,201 @@ export class GameScene extends Phaser.Scene {
     const tx = Math.round(wp.x / TILE - def.w / 2);
     const ty = Math.round(wp.y / TILE - def.h / 2);
     this.ghostTile = { x: tx, y: ty };
-    const ok = this.canPlace(this.buildMode, tx, ty) && this.state.canAfford(def.cost);
-    this.ghost.setPosition((tx + def.w / 2) * TILE, (ty + def.h) * TILE + def.oy).setTint(ok ? 0xc8ffc0 : 0xff9a8a);
+    const ok = this.canPlace(this.buildMode, tx, ty);
+    this.ghost.setPosition((tx + def.w / 2) * TILE, (ty + def.h) * TILE + def.oy).setTint(ok ? 0xc8e4ff : 0xff9a8a);
     const g = this.ghostGfx;
     g.clear();
-    g.fillStyle(ok ? 0x7dff8a : 0xff5a4a, 0.25).fillRect(tx * TILE, ty * TILE, def.w * TILE, def.h * TILE);
-    g.lineStyle(2, ok ? 0x7dff8a : 0xff5a4a, 0.8).strokeRect(tx * TILE, ty * TILE, def.w * TILE, def.h * TILE);
+    g.fillStyle(ok ? 0x9fc8ff : 0xff5a4a, 0.25).fillRect(tx * TILE, ty * TILE, def.w * TILE, def.h * TILE);
+    g.lineStyle(2, ok ? 0x9fc8ff : 0xff5a4a, 0.8).strokeRect(tx * TILE, ty * TILE, def.w * TILE, def.h * TILE);
     const ex = tx + Math.floor(def.w / 2);
     g.lineStyle(1.5, 0xffffff, 0.6).strokeRect(ex * TILE + 6, (ty + def.h) * TILE + 6, TILE - 12, TILE - 12);
   }
 
-  private tryPlace(shift: boolean) {
+  private tryPlace(shift: boolean, wx: number, wy: number) {
     const id = this.buildMode;
     if (!id) return;
     const def = BUILDINGS[id];
+    // Nhấp lại vào chỗ đã quy hoạch thì bỏ quy hoạch.
+    const existing = this.buildingAt(wx, wy);
+    if (existing?.planned) {
+      this.removeBuilding(existing);
+      this.sfx('click');
+      this.state.log(`📐 Thành Hoàng bỏ quy hoạch ${existing.def.name}`, { x: existing.px, y: existing.py });
+      return;
+    }
     const { x, y } = this.ghostTile;
-    if (!this.state.canAfford(def.cost)) {
-      this.state.log(`Chưa đủ gỗ để xây ${def.name} (cần ${def.cost.go} 🪵)`);
-      return;
-    }
     if (!this.canPlace(id, x, y)) {
-      this.state.log('Chỗ này không xây được — cần đất trống, không có cây');
+      this.state.notify('Chỗ này không xây được — cần đất trống, không có cây');
       return;
     }
-    this.state.pay(def.cost);
-    this.placeBuilding(id, x, y, false);
+    this.placeBuilding(id, x, y, 'planned');
     this.sfx('place');
-    this.state.log(`Đã đặt móng ${def.name} ${def.icon} — dân làng sẽ tự lo xây`);
-    if (!shift || !this.state.canAfford(def.cost)) this.cancelBuild();
+    this.state.log(`📐 Thành Hoàng quy hoạch ${def.name} — trưởng làng sẽ cho xây khi đủ ${def.cost.go} gỗ`, {
+      x: (x + def.w / 2) * TILE,
+      y: (y + def.h) * TILE,
+    });
+    if (!shift) this.cancelBuild();
+  }
+
+  // ------------------------------------------------------------ quyền năng của Thành Hoàng
+
+  addPhuc(n: number, x?: number, y?: number) {
+    this.state.addPhuc(n);
+    if (x !== undefined && y !== undefined) this.floatText(x, y, `+${n} 🙏`, '#ffe9a8');
+  }
+
+  usePower(id: PowerId) {
+    const def = POWERS[id];
+    if (this.powerMode === id) return this.cancelPower();
+    if (this.state.phuc < def.cost) {
+      this.state.notify(`Chưa đủ Phúc để ${def.name.toLowerCase()} (cần ${def.cost} 🙏)`);
+      return;
+    }
+    this.cancelBuild();
+    this.cancelPower();
+    if (def.target === 'none') {
+      this.castPower(id, 0, 0);
+      return;
+    }
+    this.powerMode = id;
+    this.hud.refresh();
+  }
+
+  cancelPower() {
+    if (!this.powerMode) return;
+    this.powerMode = null;
+    this.ghostGfx?.clear();
+    this.hud?.refresh();
+  }
+
+  private updatePowerGhost() {
+    const def = POWERS[this.powerMode!];
+    const p = this.input.activePointer;
+    const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+    const g = this.ghostGfx;
+    g.clear();
+    if (def.target === 'villager') {
+      const v = this.villagerAt(wp.x, wp.y);
+      g.lineStyle(2, 0xffe27a, 0.9).strokeCircle(v ? v.x : wp.x, v ? v.y - 16 : wp.y, v ? 26 : 14);
+      return;
+    }
+    const r = (def.radius ?? 1) * TILE;
+    const t = this.realTime;
+    g.fillStyle(0xffe27a, 0.12).fillCircle(wp.x, wp.y, r);
+    g.lineStyle(2, 0xffe27a, 0.7 + Math.sin(t * 5) * 0.2).strokeCircle(wp.x, wp.y, r);
+  }
+
+  /** Thực hiện quyền năng tại (wx, wy). Trả về false nếu không hợp lệ (không mất Phúc). */
+  private castPower(id: PowerId, wx: number, wy: number) {
+    const def = POWERS[id];
+    const st = this.state;
+    let target: Villager | null = null;
+
+    if (id === 'phuho') {
+      target = this.villagerAt(wx, wy);
+      if (!target) {
+        this.state.notify('Hãy nhấp vào một người để phù hộ');
+        return false;
+      }
+    }
+    if (id === 'tha' && !this.world.isLand(Math.floor(wx / TILE), Math.floor(wy / TILE))) {
+      this.state.notify('Hãy chọn chỗ đất liền để thả thú');
+      return false;
+    }
+    if (!st.spendPhuc(def.cost)) return false;
+    this.sfx('bless');
+
+    switch (id) {
+      case 'mua': {
+        st.rainUntil = Math.max(st.time, st.rainUntil) + DAY_LENGTH / 8;
+        this.sfx('thunder');
+        st.log('🌧️ Thành Hoàng cho mưa xuống — cây cối sẽ mọc lại thật nhanh');
+        break;
+      }
+      case 'ca': {
+        st.fishUntil = Math.max(st.time, st.fishUntil) + DAY_LENGTH;
+        for (const r of this.ripples) r.setTint(0xffe9a0);
+        st.log('🐟 Cá về đầy sông — câu cá dễ trúng suốt một ngày');
+        break;
+      }
+      case 'loc': {
+        const r = (def.radius ?? 3) * TILE;
+        let n = 0;
+        for (const node of this.nodes) {
+          if (Phaser.Math.Distance.Between(node.x, node.y, wx, wy) <= r && node.bless()) {
+            n++;
+            this.sparkle(node.x, node.y - 20, 8);
+          }
+        }
+        this.sparkle(wx, wy, 24);
+        st.log(n ? `🍌 Thành Hoàng ban lộc: ${n} cây tốt tươi trở lại` : '🍌 Thành Hoàng ban lộc cho cây cối thêm xanh tốt', {
+          x: wx,
+          y: wy,
+        });
+        break;
+      }
+      case 'tha': {
+        const tx = Math.floor(wx / TILE);
+        const ty = Math.floor(wy / TILE);
+        for (const kind of ['ga', 'ga', 'heo'] as AnimalKind[]) this.animals.push(new Animal(this, kind, tx, ty));
+        this.sparkle(wx, wy, 16);
+        st.log('🐓 Thành Hoàng thả gà rừng, heo rừng về rừng', { x: wx, y: wy });
+        break;
+      }
+      case 'phuho': {
+        target!.blessed();
+        this.sparkle(target!.x, target!.y - 20, 30);
+        st.log(`✨ ${target!.name} được Thành Hoàng phù hộ`, target!);
+        break;
+      }
+    }
+    this.resolveWishes(id, target);
+    this.cancelPower();
+    return true;
+  }
+
+  private sparkle(x: number, y: number, n: number) {
+    const em = this.add
+      .particles(x, y, 'spark', {
+        speed: { min: 20, max: 70 },
+        lifespan: 900,
+        scale: { start: 1.8, end: 0 },
+        alpha: { start: 1, end: 0 },
+        tint: 0xffe27a,
+        blendMode: 'ADD',
+        emitting: false,
+      })
+      .setDepth(60000);
+    em.explode(n);
+    this.time.delayedCall(1200, () => em.destroy());
+  }
+
+  /** Dân làng nên cầu khấn điều gì, dựa vào tình hình hiện tại. */
+  wishFor(v: Villager): WishType {
+    if (v.mood < 40 || v.memories.some((m) => m.id === 'heo_huc')) return 'khoe';
+    const need = this.villageNeeds();
+    const opts: WishType[] = [];
+    if (need.hai > 0.5 || need.ca > 0.5) opts.push('loc');
+    const trees = this.nodes.filter((n) => n.kind !== 'banana');
+    if (trees.filter((n) => !n.grown).length > trees.length * 0.15) opts.push('mua');
+    if (v.affinity('ca') > 0.2 && !this.state.fishBoost) opts.push('ca');
+    if (this.animals.length < 5) opts.push('thu');
+    // Lúc đủ đầy vẫn hay cầu mưa thuận gió hoà, được mùa cá, mùa trái.
+    if (!opts.length) opts.push((['mua', 'mua', 'ca', 'loc'] as WishType[])[Math.floor(Math.random() * 4)]);
+    return opts[Math.floor(Math.random() * opts.length)];
+  }
+
+  /** Quyền năng vừa dùng có đáp ứng lời cầu khấn nào không. */
+  private resolveWishes(id: PowerId, target: Villager | null) {
+    for (const v of this.villagers) {
+      if (!v.wish || WISHES[v.wish.type].power !== id) continue;
+      if (id === 'phuho' && v !== target) continue;
+      const text = v.wish.text;
+      if (!v.fulfillWish()) continue;
+      this.state.stats.wishes++;
+      this.addPhuc(10, v.x, v.y - 60);
+      this.state.log(`✨ Lời cầu của ${v.name} đã ứng nghiệm: “${text}”`, { x: v.x, y: v.y });
+    }
   }
 
   // ------------------------------------------------------------ người dân
@@ -523,6 +718,12 @@ export class GameScene extends Phaser.Scene {
     this.select(v);
   }
 
+  /** Đưa camera tới chỗ một sự kiện trong sử làng. */
+  panTo(x: number, y: number) {
+    this.select(null);
+    this.cameras.main.pan(x, y, 600, 'Sine.easeInOut');
+  }
+
   /** Người chơi tự di chuyển camera thì ngừng bám theo (vẫn giữ người đang chọn). */
   private releaseFollow() {
     this.cameras.main.stopFollow();
@@ -530,11 +731,19 @@ export class GameScene extends Phaser.Scene {
 
   /** Thành Hoàng báo mộng gợi ý một việc — người đó có thể nghe hoặc không. */
   dream(v: Villager, job: JobId) {
+    if (this.state.phuc < DREAM_COST) {
+      this.state.notify(`Chưa đủ Phúc để báo mộng (cần ${DREAM_COST} 🙏)`);
+      return;
+    }
     const r = v.receiveDream(job);
     if (r === 'cooldown') return;
+    this.state.spendPhuc(DREAM_COST);
     const verb = JOBS[job].name.toLowerCase();
     this.sfx(r === 'accepted' ? 'levelUp' : 'click');
-    this.state.log(r === 'accepted' ? `💭 ${v.name} nghe lời báo mộng, đi ${verb}` : `💭 ${v.name} không nghe lời báo mộng (${verb})`);
+    this.state.log(
+      r === 'accepted' ? `💭 ${v.name} nghe lời báo mộng, đi ${verb}` : `💭 ${v.name} không nghe lời báo mộng đi ${verb}`,
+      { x: v.x, y: v.y },
+    );
     this.hud.renderDetail();
   }
 
@@ -569,7 +778,8 @@ export class GameScene extends Phaser.Scene {
       san: this.animals.some((a) => a.alive && !a.reservedBy) ? (0.1 + hungry * (fire ? 0.8 : 0.3)) * rawFull : -1,
       nau: fire && raw > 0 ? Math.max(Math.min(1, 0.35 + raw * 0.12), hungry) : -1,
       chat: any(['tree', 'bamboo']) ? Phaser.Math.Clamp(0.15 + (1 - r.go / 40) * 0.7, 0.1, 0.85) : -1,
-      xay: this.buildings.some((b) => !b.built) ? 0.9 : -1,
+      xay: this.buildings.some((b) => !b.built && !b.planned) ? 0.9 : -1,
+      le: 0,
     };
     this.needsCache = { time: this.state.time, need };
     return need;
@@ -610,7 +820,7 @@ export class GameScene extends Phaser.Scene {
     rival.addMood(10);
     rival.say('Được cả làng tin tưởng, mình sẽ cố gắng!');
     rival.note('👑 Được cả làng bầu làm trưởng làng');
-    this.state.log(`👑 Cả làng bầu ${rival.name} làm trưởng làng mới`);
+    this.state.log(`👑 Cả làng bầu ${rival.name} làm trưởng làng mới`, { x: rival.x, y: rival.y });
   }
 
   /** Ô trống để đứng/ngồi: đất liền, không có công trình. */
@@ -622,14 +832,33 @@ export class GameScene extends Phaser.Scene {
   private plan() {
     this.electChief();
     const chief = this.chief();
-    if (!chief || chief.asleep || this.buildings.some((b) => !b.built)) return;
+    if (!chief || chief.asleep || this.buildings.some((b) => !b.built && !b.planned)) return;
     const go = this.state.res.go;
+
+    // Ưu tiên chỗ Thành Hoàng đã quy hoạch.
+    const planned = this.buildings.filter((b) => b.planned);
+    if (planned.length) {
+      const b = planned.find((p) => this.state.canAfford(p.def.cost));
+      if (!b) return; // để dành gỗ cho quy hoạch
+      this.state.pay(b.def.cost);
+      b.fund();
+      this.sfx('place', b.px, b.py);
+      const why = `Làm theo ý Thành Hoàng, dựng ${b.def.name.toLowerCase()} thôi`;
+      chief.say(why);
+      chief.note(`🏛️ ${why}`);
+      this.state.log(`🏛️ Trưởng làng ${chief.name} cho xây ${b.def.name} theo quy hoạch`, { x: b.px, y: b.py });
+      return;
+    }
+
     const count = (id: BuildingId) => this.buildings.filter((b) => b.id === id).length;
     let id: BuildingId | null = null;
     let why = '';
     if (!count('lua') && go >= 8) {
       id = 'lua';
       why = 'Phải có đống lửa để nướng thịt, tối còn sưởi ấm';
+    } else if (!count('mieu') && count('lua') && go >= 15) {
+      id = 'mieu';
+      why = 'Lập miếu thờ Thành Hoàng, cầu cho làng yên ấm';
     } else if (!count('kho') && go >= 26) {
       id = 'kho';
       why = 'Gỗ nhiều rồi, dựng cái kho gần chỗ làm cho tiện';
@@ -650,11 +879,14 @@ export class GameScene extends Phaser.Scene {
     if (!spot) return;
     const def = BUILDINGS[id];
     this.state.pay(def.cost);
-    this.placeBuilding(id, spot.x, spot.y, false);
+    this.placeBuilding(id, spot.x, spot.y, 'site');
     this.sfx('place', (spot.x + def.w / 2) * TILE, (spot.y + def.h) * TILE);
     chief.say(why);
     chief.note(`🏛️ Quyết định dựng ${def.name}: ${why}`);
-    this.state.log(`🏛️ Trưởng làng ${chief.name} quyết định dựng ${def.name} ${def.icon}`);
+    this.state.log(`🏛️ Trưởng làng ${chief.name} quyết định dựng ${def.name}`, {
+      x: (spot.x + def.w / 2) * TILE,
+      y: (spot.y + def.h) * TILE,
+    });
   }
 
   private findBuildSpot(id: BuildingId, c: Pt, minR: number): Pt | null {
@@ -712,12 +944,17 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (p.rightButtonReleased()) {
-        if (this.buildMode) this.cancelBuild();
+        if (this.powerMode) this.cancelPower();
+        else if (this.buildMode) this.cancelBuild();
         else this.select(null);
         return;
       }
+      if (this.powerMode) {
+        this.castPower(this.powerMode, p.worldX, p.worldY);
+        return;
+      }
       if (this.buildMode) {
-        this.tryPlace(!!(p.event as MouseEvent).shiftKey);
+        this.tryPlace(!!(p.event as MouseEvent).shiftKey, p.worldX, p.worldY);
         return;
       }
       this.select(this.villagerAt(p.worldX, p.worldY));
@@ -736,7 +973,11 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-ONE', () => this.state.setSpeed(1));
     kb.on('keydown-TWO', () => this.state.setSpeed(2));
     kb.on('keydown-THREE', () => this.state.setSpeed(3));
-    kb.on('keydown-ESC', () => (this.buildMode ? this.cancelBuild() : this.select(null)));
+    kb.on('keydown-ESC', () => {
+      if (this.powerMode) this.cancelPower();
+      else if (this.buildMode) this.cancelBuild();
+      else this.select(null);
+    });
     kb.on('keydown-M', () => this.toggleMute());
   }
 
@@ -760,11 +1001,24 @@ export class GameScene extends Phaser.Scene {
     this.panKeys(realDt);
 
     if (dt > 0) {
-      this.state.time += dt;
+      const st = this.state;
+      st.time += dt;
       for (const v of this.villagers) v.update(dt);
       for (const a of this.animals) a.update(dt);
       this.animals = this.animals.filter((a) => a.alive);
-      for (const n of this.nodes) n.update(dt);
+      // Mưa xuống, cây cối mọc nhanh gấp 6.
+      const grow = st.raining ? dt * 6 : dt;
+      for (const n of this.nodes) n.update(grow);
+
+      if (st.raining !== this.wasRaining) {
+        this.wasRaining = st.raining;
+        if (st.raining) for (const v of this.villagers) v.onRain();
+        else st.log('🌤️ Trời tạnh mưa, cây cối xanh mướt');
+      }
+      if (!st.fishBoost && this.ripples[0]?.tintTopLeft !== 0xffffff) for (const r of this.ripples) r.clearTint();
+
+      // Dân làng vui vẻ thì Thành Hoàng cũng thêm Phúc.
+      for (const v of this.villagers) if (v.mood > 50) st.addPhuc(((v.mood - 50) / 50) * 0.03 * dt);
 
       this.respawnTimer += dt;
       if (this.respawnTimer > DAY_LENGTH / 5) {
@@ -777,21 +1031,11 @@ export class GameScene extends Phaser.Scene {
         this.planTimer = 0;
         this.plan();
       }
-
-      this.questTimer += dt;
-      if (this.questTimer > 1) {
-        this.questTimer = 0;
-        for (const q of QUESTS) {
-          if (!this.questDone.has(q.id) && q.check(this)) {
-            this.questDone.add(q.id);
-            this.state.log(`✅ Hoàn thành mục tiêu: ${q.text}`);
-            this.sfx('quest');
-          }
-        }
-      }
     }
 
+    this.layoutBubbles();
     this.updateLighting();
+    this.updateRain(realDt);
     this.updateGhost();
 
     if (this.ambience && this.music) {
@@ -800,7 +1044,7 @@ export class GameScene extends Phaser.Scene {
         this.soundTimer = 0;
         this.updateProximity();
       }
-      this.ambience.update(realDt, { hour: this.state.hour, night: this.night, ...this.prox });
+      this.ambience.update(realDt, { hour: this.state.hour, night: this.night, rain: this.rainLevel, ...this.prox });
       this.music.setNight(this.night);
     }
 
@@ -808,6 +1052,54 @@ export class GameScene extends Phaser.Scene {
     if (this.hudTimer > 0.2) {
       this.hudTimer = 0;
       this.hud.update();
+    }
+  }
+
+  /** Xếp bong bóng suy nghĩ: cái nào chồng lên cái khác thì đẩy lên trên. */
+  private layoutBubbles() {
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
+    const boxes = this.villagers
+      .map((v) => ({ v, b: v.bubbleBox() }))
+      .filter((e) => e.b)
+      .sort((a, b) => b.b!.y - a.b!.y);
+    for (const { v, b } of boxes) {
+      const box = b!;
+      for (let guard = 0; guard < placed.length; guard++) {
+        const hit = placed.find(
+          (p) => Math.abs(p.x - box.x) < (p.w + box.w) / 2 && box.y > p.y - p.h - 2 && box.y - box.h < p.y + 2,
+        );
+        if (!hit) break;
+        box.y = hit.y - hit.h - 4;
+      }
+      v.placeBubble(box.x, box.y);
+      placed.push(box);
+    }
+  }
+
+  /** Vẽ mưa trong khung nhìn camera; nét mưa giữ cùng kích thước dù phóng to hay thu nhỏ. */
+  private updateRain(realDt: number) {
+    const target = this.state.raining ? 1 : 0;
+    this.rainLevel += Phaser.Math.Clamp(target - this.rainLevel, -realDt * 0.5, realDt * 0.5);
+    const g = this.rainGfx;
+    g.clear();
+    this.rainShade.setAlpha(this.rainLevel * 0.22);
+    if (this.rainLevel < 0.01) return;
+    const cam = this.cameras.main;
+    const v = cam.worldView;
+    const z = cam.zoom;
+    const n = Math.floor(this.drops.length * this.rainLevel);
+    g.lineStyle(1.2 / z, 0xcfe3f5, 0.55);
+    for (let i = 0; i < n; i++) {
+      const d = this.drops[i];
+      if (this.state.speed > 0) {
+        d.v += realDt * d.speed;
+        d.u -= realDt * d.speed * 0.12;
+        if (d.v > 1) d.v -= 1;
+        if (d.u < 0) d.u += 1;
+      }
+      const x = v.x + d.u * v.width;
+      const y = v.y + d.v * v.height;
+      g.lineBetween(x, y, x - (d.len * 0.25) / z, y + d.len / z);
     }
   }
 

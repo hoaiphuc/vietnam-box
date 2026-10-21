@@ -321,6 +321,61 @@ function drawStorehouse(c: Ctx) {
   ell(c, 20, 70, 4.5, 5.5, '#d6c28e');
 }
 
+function drawShrine(c: Ctx) {
+  ell(c, 20, 54, 19, 3.5, 'rgba(0,0,0,0.2)');
+  // nền đá, bậc thềm
+  rrect(c, 3, 44, 34, 10, 2, '#9d9a8e');
+  c.fillStyle = '#b8b5a8';
+  c.fillRect(3, 44, 34, 2.5);
+  rrect(c, 14, 51, 12, 4, 1, '#8a877b');
+  // tường và cột đỏ
+  c.fillStyle = '#e0cfa2';
+  c.fillRect(9, 27, 22, 17);
+  c.fillStyle = '#a63a2a';
+  c.fillRect(8, 26, 3.5, 18);
+  c.fillRect(28.5, 26, 3.5, 18);
+  // khám thờ
+  rrect(c, 14, 30, 12, 14, 2, '#4a2a1e');
+  c.fillStyle = '#e2b84a';
+  c.fillRect(15, 38, 10, 2.5);
+  ell(c, 20, 37, 2.6, 1.6, '#c99a3a');
+  for (const x of [18.5, 20, 21.5]) {
+    line(c, x, 37, x, 32.5, '#c0392b', 0.8);
+    circle(c, x, 32.3, 0.7, '#ffb347');
+  }
+  // hoành phi
+  rrect(c, 15, 23.5, 10, 3.5, 0.8, '#e2b84a');
+  line(c, 17, 25.2, 23, 25.2, '#8c3b2a', 0.7);
+  // mái ngói cong
+  poly(c, [1, 28, 39, 28, 32, 15, 8, 15], '#8c3b2a');
+  poly(c, [20, 15, 32, 15, 39, 28, 20, 28], '#7a3123');
+  for (let i = 1; i < 9; i++) {
+    const t = i / 9;
+    line(c, 8 + t * 24, 15.5, 1 + t * 38, 27.5, 'rgba(60,20,10,0.45)', 0.9);
+  }
+  c.strokeStyle = '#8c3b2a';
+  c.lineWidth = 3;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(3, 28);
+  c.quadraticCurveTo(-0.5, 27, 0.5, 21.5);
+  c.moveTo(37, 28);
+  c.quadraticCurveTo(40.5, 27, 39.5, 21.5);
+  c.stroke();
+  c.lineCap = 'butt';
+  rrect(c, 7, 12, 26, 4, 2, '#6e2c1f');
+  circle(c, 20, 10, 2.6, '#e2b84a');
+  circle(c, 20, 10, 1.2, '#f6d77a');
+  c.strokeStyle = '#6e2c1f';
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(8, 13);
+  c.quadraticCurveTo(5, 12, 5.5, 8.5);
+  c.moveTo(32, 13);
+  c.quadraticCurveTo(35, 12, 34.5, 8.5);
+  c.stroke();
+}
+
 function drawCampfire(c: Ctx) {
   ell(c, 18, 22, 15, 6, 'rgba(0,0,0,0.25)');
   ell(c, 18, 21, 9, 4, '#3a2a20');
@@ -393,6 +448,7 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'nha', 72, 84, drawHouse);
   make(scene, 'kho', 72, 78, drawStorehouse);
   make(scene, 'lua', 36, 30, drawCampfire);
+  make(scene, 'mieu', 40, 57, drawShrine);
   make(scene, 'flame', 20, 28, drawFlame);
 
   make(scene, 'glow', 128, 128, (c) =>

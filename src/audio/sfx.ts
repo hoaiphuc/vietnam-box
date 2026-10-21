@@ -22,7 +22,10 @@ export type SfxId =
   | 'built'
   | 'place'
   | 'click'
-  | 'select';
+  | 'select'
+  | 'pray'
+  | 'bless'
+  | 'thunder';
 
 interface Recipe {
   /** Lượng vang (reverb). */
@@ -189,6 +192,33 @@ export const SFX: Record<SfxId, Recipe> = {
     play: (e, o, t) => {
       e.tone(o, { f: 660, f2: 990, t, dur: 0.08, peak: 0.15 });
       e.tone(o, { f: 990, t: t + 0.06, dur: 0.1, peak: 0.1 });
+    },
+  },
+  /** Chuông miếu ngân dài. */
+  pray: {
+    rev: 0.5,
+    gap: 1,
+    play: (e, o, t) => {
+      bell(e, o, t, mtof(57), 0.3, 3.2);
+      bell(e, o, t, mtof(57) * 1.003, 0.12, 2.5);
+    },
+  },
+  /** Ban phép: lấp lánh đi lên. */
+  bless: {
+    rev: 0.5,
+    gap: 0.3,
+    play: (e, o, t) => {
+      [72, 77, 79, 84, 86, 89].forEach((m, i) => bell(e, o, t + i * 0.06, mtof(m), 0.1, 0.9));
+      e.noise(o, { t, dur: 0.8, peak: 0.05, a: 0.3, filter: { type: 'highpass', f: 6000 } });
+    },
+  },
+  /** Sấm rền xa xa. */
+  thunder: {
+    rev: 0.4,
+    gap: 2,
+    play: (e, o, t) => {
+      e.noise(o, { t, dur: 2.4, peak: 0.6, a: 0.25, brown: true, filter: { type: 'lowpass', f: 300, f2: 90 } });
+      e.noise(o, { t: t + 0.3, dur: 1.4, peak: 0.35, a: 0.05, brown: true, filter: { type: 'lowpass', f: 500, f2: 120 } });
     },
   },
 };

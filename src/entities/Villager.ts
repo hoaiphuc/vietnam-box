@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE } from '../config';
-import { JOB_ORDER, JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
+import { ACT_ORDER, JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
+import { WISHES, type WishType } from '../powers';
 import type { FishingSpot, GameScene } from '../scenes/GameScene';
 import { TRAITS, type TraitId } from '../traits';
 
@@ -57,6 +58,7 @@ const NEED_LINES: Record<JobId, string> = {
   nau: 'Thịt cá sống còn nhiều, đem nướng kẻo hỏng',
   xay: 'Phải dựng cho xong công trình đã',
   nghi: 'Mệt quá, phải nghỉ một lát',
+  le: 'Lâu rồi chưa thắp hương cho ông Thành Hoàng',
 };
 const LIKE_LINES: Record<JobId, string> = {
   chat: 'Vung rìu đốn cây thấy khoẻ cả người!',
@@ -66,6 +68,7 @@ const LIKE_LINES: Record<JobId, string> = {
   nau: 'Nướng đồ ăn cho cả nhà là vui nhất',
   xay: 'Thích tự tay dựng nhà dựng cửa',
   nghi: 'Thong thả chút cho đời thêm vui',
+  le: 'Ra miếu thắp nén hương cho lòng thanh thản',
 };
 const CASUAL_LINES: Record<JobId, string> = {
   chat: 'Đi chặt thêm ít gỗ để dành',
@@ -75,7 +78,10 @@ const CASUAL_LINES: Record<JobId, string> = {
   nau: 'Nướng thêm ít đồ ăn',
   xay: 'Phụ một tay xây dựng',
   nghi: 'Hôm nay thong thả một chút',
+  le: 'Ghé miếu thắp nén hương',
 };
+const PRAY_LINES = ['Cầu cho cả nhà bình an', 'Tạ ơn ông Thành Hoàng phù hộ', 'Cầu cho mưa thuận gió hoà'];
+const RAIN_LINES = ['Mưa rồi! Mát quá', 'Trời mưa, cây cối chắc tốt lắm', 'Ông Thành Hoàng cho mưa kìa!', 'Mưa rào đầu mùa đây'];
 const CHAT_LINES = [
   'Hôm nay trời đẹp ghê',
   'Cá dưới sông dạo này nhiều lắm',
@@ -113,6 +119,9 @@ export class Villager {
   intent: { job: JobId; until: number } | null = null;
   dreamReadyAt = 0;
   options: Option[] = [];
+  /** Lời cầu khấn đang chờ Thành Hoàng đáp ứng. */
+  wish: { type: WishType; text: string; until: number } | null = null;
+  private lastPray = -DAY_LENGTH;
 
   private prefs = {} as Record<JobId, number>;
   private mode = '';
@@ -151,7 +160,8 @@ export class Villager {
     this.traits = def.traits;
     for (const j of SKILL_JOBS) this.skills[j] = { level: def.skills[j] ?? 0, xp: 0 };
     this.skills.nghi = { level: 0, xp: 0 };
-    for (const j of JOB_ORDER) this.prefs[j] = (Math.random() - 0.5) * 0.2;
+    this.skills.le = { level: 0, xp: 0 };
+    for (const j of ACT_ORDER) this.prefs[j] = (Math.random() - 0.5) * 0.2;
 
     const scale = def.child ? 0.8 : 1;
     this.ring = scene.add.image(0, 0, 'ring').setVisible(false);
@@ -250,7 +260,7 @@ export class Villager {
   receiveDream(job: JobId): 'accepted' | 'refused' | 'cooldown' {
     const time = this.scene.state.time;
     if (time < this.dreamReadyAt) return 'cooldown';
-    this.dreamReadyAt = time + DAY_LENGTH * 0.12;
+    this.dreamReadyAt = time + DAY_LENGTH * 0.05;
     const aff = this.affinity(job);
     let p = 0.65 + aff * 0.6;
     if (this.has('toMo')) p += 0.25;
@@ -287,6 +297,32 @@ export class Villager {
     this.intent = null;
     this.say('Thôi, tự mình quyết vậy');
     this.mode = '';
+  }
+
+  /** Lời cầu khấn được đáp ứng: vui, tin hơn, siêng thắp hương hơn. */
+  fulfillWish() {
+    if (!this.wish) return false;
+    const text = this.wish.text;
+    this.wish = null;
+    this.addMood(15);
+    this.say('Ông Thành Hoàng linh thiêng quá! 🙏', 5000);
+    this.remember('linh_ung', '✨', `Lời cầu “${text}” đã ứng nghiệm`, 2, { le: 0.3 });
+    return true;
+  }
+
+  /** Được Thành Hoàng phù hộ. */
+  blessed() {
+    this.addMood(25);
+    this.energy = Math.min(100, this.energy + 35);
+    this.hunger = Math.min(100, this.hunger + 25);
+    this.memories = this.memories.filter((m) => m.id !== 'heo_huc');
+    this.say('Tự nhiên thấy trong người khoẻ khoắn lạ thường! ✨', 5000);
+    this.remember('phu_ho', '✨', 'Được Thành Hoàng phù hộ, khoẻ khoắn hẳn', 1);
+  }
+
+  onRain() {
+    this.addMood(3);
+    if (!this.inside) this.say(RAIN_LINES[Math.floor(Math.random() * RAIN_LINES.length)]);
   }
 
   private interrupt() {
@@ -336,8 +372,11 @@ export class Villager {
       this.note(`⭐ ${s.level === 1 ? `Đã biết ${verb}` : `${JOBS[job].name} lên cấp ${s.level}`}`);
       this.scene.state.log(
         s.level === 1
-          ? `${this.name} đã biết ${verb} rồi! ${JOBS[job].icon}`
-          : `${this.name} ${verb} giỏi hơn — cấp ${s.level} ${JOBS[job].icon}`,
+          ? `${JOBS[job].icon} ${this.name} đã biết ${verb}`
+          : s.level >= MAX_LEVEL
+            ? `🏅 ${this.name} trở thành bậc thầy ${verb}`
+            : `${JOBS[job].icon} ${this.name} ${verb} giỏi hơn — cấp ${s.level}`,
+        { x: this.x, y: this.y },
       );
     }
     if (s.level >= MAX_LEVEL) s.xp = 0;
@@ -358,6 +397,11 @@ export class Villager {
     }
     if (this.memories.length && this.memories.some((m) => m.until < time)) this.memories = this.memories.filter((m) => m.until >= time);
     if (this.intent && this.intent.until < time) this.intent = null;
+    if (this.wish && this.wish.until < time) {
+      this.wish = null;
+      this.addMood(-4);
+      this.note('🙏 Lời cầu khấn chưa thành... chắc ông bận');
+    }
 
     this.moving = false;
     this.working = false;
@@ -424,10 +468,22 @@ export class Villager {
     const left = this.bubbleUntil - this.scene.time.now;
     const show = left > 0 && !this.inside;
     this.bubble.setVisible(show);
-    if (show) {
-      this.bubble.setPosition(this.x + 6, this.y - (this.def.child ? 58 : 68));
-      this.bubble.setAlpha(Math.min(1, left / 400));
-    }
+    if (show) this.bubble.setAlpha(Math.min(1, left / 400));
+  }
+
+  /** Bong bóng đang hiện thì trả về vị trí gốc và kích thước, để scene xếp không chồng nhau. */
+  bubbleBox() {
+    if (!this.bubble.visible) return null;
+    return {
+      x: this.x + 6,
+      y: this.y - (this.def.child ? 58 : 68),
+      w: this.bubbleText.width + 14,
+      h: this.bubbleText.height + 8,
+    };
+  }
+
+  placeBubble(x: number, y: number) {
+    this.bubble.setPosition(x, y);
   }
 
   // ------------------------------------------------------------ hành vi cơ bản
@@ -528,17 +584,17 @@ export class Villager {
     const evening = h >= 18 && h < 21;
     const fireEvening = evening && !!s.nearestBuilt('lua', this.x, this.y);
     const opts: Option[] = [];
-    for (const j of JOB_ORDER) {
-      const n = j === 'nghi' ? this.restNeed(fireEvening) : need[j];
+    for (const j of ACT_ORDER) {
+      const n = j === 'nghi' ? this.restNeed(fireEvening) : j === 'le' ? this.prayNeed() : need[j];
       if (n < 0) continue;
       const aff = this.affinity(j);
       let score = n * 0.7 + aff * 0.5;
-      if (j !== 'nghi') {
+      if (SKILL_JOBS.includes(j)) {
         score += this.skills[j].level * 0.03;
         const others = s.villagers.filter((o) => o !== this && o.activity === j && !o.asleep).length;
         score -= others * (j === 'nau' ? 0.5 : 0.18);
         if (evening) score *= 0.6;
-      } else if (!fireEvening) {
+      } else if (j === 'nghi' && !fireEvening) {
         score -= this.boredom() * 0.8;
       }
       const dreamed = this.intent?.job === j;
@@ -550,6 +606,19 @@ export class Villager {
     opts.sort((a, b) => b.score - a.score);
     this.options = opts;
     return opts[0];
+  }
+
+  /** Muốn ra miếu: lâu chưa thắp hương, sáng sớm / chiều tối, hoặc đang buồn. */
+  private prayNeed() {
+    const s = this.scene;
+    if (!s.nearestBuilt('mieu', this.x, this.y)) return -1;
+    const h = s.state.hour;
+    const since = (s.state.time - this.lastPray) / DAY_LENGTH;
+    if (since < 0.3) return 0.02;
+    let n = Math.min(1, since / 0.9) * 0.45;
+    if ((h >= 6 && h < 8) || (h >= 17 && h < 18.5)) n += 0.2;
+    if (this.mood < 40) n += 0.15;
+    return n;
   }
 
   private boredom() {
@@ -610,6 +679,8 @@ export class Villager {
         return yield* this.cook();
       case 'xay':
         return yield* this.build();
+      case 'le':
+        return yield* this.pray();
       default:
         return yield* this.relax();
     }
@@ -725,6 +796,39 @@ export class Villager {
     }
   }
 
+  private *pray(): Beh {
+    const s = this.scene;
+    const shrine = s.nearestBuilt('mieu', this.x, this.y);
+    if (!shrine) return yield* this.idle('Chưa có miếu để thắp hương');
+    this.status = 'Ra miếu thắp hương';
+    if (!(yield* this.walkTo(shrine.entrance.x, shrine.entrance.y))) return;
+    this.face(shrine.px);
+    this.status = 'Thắp nén hương 🙏';
+    this.holding = '🙏';
+    s.sfx('pray', this.x, this.y);
+    try {
+      if (!(yield* this.workFor(3))) return;
+    } finally {
+      this.holding = null;
+    }
+    this.lastPray = s.state.time;
+    s.addPhuc(Math.round(3 + this.mood / 20), this.x, this.y - 50);
+    this.addMood(4);
+
+    if (!this.wish) {
+      if (Math.random() < 0.7) {
+        const w = s.wishFor(this);
+        const text = WISHES[w].text;
+        this.wish = { type: w, text, until: s.state.time + DAY_LENGTH };
+        this.say(`🙏 ${text}`, 5500);
+        this.note(`🙏 Cầu khấn: ${text}`);
+        s.state.log(`🙏 ${this.name} cầu khấn: “${text}”`, { x: this.x, y: this.y });
+        return;
+      }
+    }
+    this.say(PRAY_LINES[Math.floor(Math.random() * PRAY_LINES.length)]);
+  }
+
   // ------------------------------------------------------------ nghề nghiệp
 
   private *chop(): Beh {
@@ -785,7 +889,9 @@ export class Villager {
         this.status = 'Đang ngồi câu cá 🎣';
         this.scene.sfx('cast', this.x, this.y);
         if (!(yield* this.workFor(5 / this.eff('ca')))) break;
-        if (Math.random() < 0.4 + 0.05 * this.skills.ca.level) {
+        const st = this.scene.state;
+        const bonus = (st.fishBoost ? 0.3 : 0) + (st.raining ? 0.1 : 0);
+        if (Math.random() < 0.4 + 0.05 * this.skills.ca.level + bonus) {
           caught++;
           this.scene.sfx('catch', this.x, this.y);
           this.scene.floatText(this.x, this.y - 48, '🐟', '#fff');
@@ -803,6 +909,7 @@ export class Villager {
         this.addMood(5);
         this.say('Hôm nay cá cắn câu nhiều ghê! 🐟');
         this.remember('ca_nhieu', '🎣', 'Một buổi câu được nhiều cá', 1, { ca: 0.15 });
+        this.scene.state.log(`🎣 ${this.name} câu được mẻ cá lớn`, { x: this.x, y: this.y });
       }
     } finally {
       spot.reservedBy = null;
@@ -840,6 +947,7 @@ export class Villager {
             this.scene.recordWork(a.x, a.y);
             this.scene.sfx('caught', this.x, this.y);
             this.scene.floatText(this.x, this.y - 50, `Bắt được ${a.name}!`, '#ffe27a');
+            this.scene.state.log(`🏹 ${this.name} săn được một con ${a.name}`, { x: this.x, y: this.y });
             this.gainXp('san', a.kind === 'heo' ? 8 : 5);
             if (a.kind === 'heo') {
               this.addMood(10);
@@ -905,7 +1013,7 @@ export class Villager {
     this.scene.floatText(this.x, this.y - 50, '💥 Á!', '#ffb0a0');
     this.say('Ối! Bị heo rừng húc đau quá 😣');
     this.remember('heo_huc', '🐗', 'Bị heo rừng húc, giờ sợ đi săn', 2, { san: -0.45 });
-    this.scene.state.log(`🐗 ${this.name} bị heo rừng húc! Chắc sẽ ngại đi săn mấy hôm.`);
+    this.scene.state.log(`🐗 ${this.name} bị heo rừng húc, chắc sẽ ngại đi săn mấy hôm`, { x: this.x, y: this.y });
     const d = Math.hypot(this.x - fromX, this.y - fromY) || 1;
     const nx = this.x + ((this.x - fromX) / d) * 18;
     const ny = this.y + ((this.y - fromY) / d) * 18;

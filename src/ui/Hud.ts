@@ -1,6 +1,6 @@
 import { BUILD_ORDER, BUILDINGS, JOB_ORDER, JOBS, RES_ORDER, RESOURCES, type BuildingId, type JobId, type ResKey } from '../data';
 import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
-import { QUESTS } from '../quests';
+import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
 import type { GameScene } from '../scenes/GameScene';
 import { TRAITS } from '../traits';
 
@@ -34,7 +34,13 @@ export class Hud {
   private cards = new Map<Villager, CardEls>();
   private speedBtns: HTMLButtonElement[] = [];
   private buildBtns = new Map<BuildingId, HTMLButtonElement>();
-  private questItems = new Map<string, HTMLElement>();
+  private powerBtns = new Map<PowerId, HTMLButtonElement>();
+  private phucText: HTMLElement;
+  private phucBar: HTMLElement;
+  private wishes: HTMLElement;
+  private wishKey = '';
+  private historyList: HTMLElement;
+  private historyKey = '';
   private detail: HTMLElement;
   private detailFor: Villager | null = null;
   private journalKey = '';
@@ -50,6 +56,9 @@ export class Hud {
       <div class="topbar panel">
         <div class="brand">🌾 <span>Làng Quê</span></div>
         <div class="clock"><span class="clock-icon">☀️</span><span class="clock-text"></span></div>
+        <div class="phuc" title="Điểm Phúc của Thành Hoàng — có được khi dân làng vui vẻ và thắp hương ở miếu">
+          <span>🙏</span><div class="phuc-bar"><i></i></div><b class="phuc-text">0</b>
+        </div>
         <div class="resources">
           ${RES_ORDER.map(
             (k) => `<div class="chip" title="${RESOURCES[k].name}"><span>${RESOURCES[k].icon}</span><b data-res="${k}">0</b></div>`,
@@ -75,10 +84,15 @@ export class Hud {
       </div>
       <div class="family panel"><h4>Dân làng</h4><div class="cards"></div></div>
       <div class="right-col">
-        <div class="quests panel"><h4>Mục tiêu</h4><ul></ul></div>
+        <div class="history panel"><h4>📜 Sử làng</h4><div class="hlist"></div></div>
+        <div class="wishes panel" hidden><h4>Lời cầu khấn</h4><ul></ul></div>
         <div class="detail panel" hidden></div>
       </div>
-      <div class="buildbar panel"><div class="bb-title">Xây dựng</div><div class="bb-items"></div></div>
+      <div class="buildbar panel">
+        <div class="bb-title">Quyền năng</div><div class="bb-items powers"></div>
+        <div class="bb-sep"></div>
+        <div class="bb-title">Quy hoạch</div><div class="bb-items plans"></div>
+      </div>
       <div class="hint" hidden></div>
       <div class="toasts"></div>
       <div class="intro">
@@ -86,10 +100,11 @@ export class Hud {
           <div class="intro-art">🛖🌾🎋🐓🔥</div>
           <h2>Làng Quê Yên Bình</h2>
           <p>Bạn là <b>Thành Hoàng làng</b> — vị thần lặng lẽ che chở cho một gia đình nhỏ vừa về lập nghiệp bên sông: <b>Bố Tám</b>, <b>Mẹ Lan</b> và <b>Bé Na</b>.</p>
-          <p>Họ tự sống, tự suy nghĩ và tự quyết định: ai cũng có tính cách, sở thích, tâm trạng và ký ức riêng. Bạn chỉ dõi theo và thỉnh thoảng <b>báo mộng</b> gợi ý — nghe hay không là tuỳ họ.</p>
+          <p>Họ tự sống, tự suy nghĩ và tự quyết định: ai cũng có tính cách, sở thích, tâm trạng và ký ức riêng. Dân làng vui vẻ và ra miếu thắp hương sẽ cho bạn điểm <b>Phúc 🙏</b> — dùng nó để làm mưa, ban lộc, phù hộ, báo mộng và đáp lại lời cầu khấn của họ.</p>
           <ul>
             <li>🖱️ Nhấp vào một người để xem họ đang nghĩ gì</li>
-            <li>💭 Báo mộng để gợi ý một việc cho họ</li>
+            <li>💭 Báo mộng để gợi ý một việc — nghe hay không là tuỳ họ</li>
+            <li>📐 Quy hoạch chỗ xây, trưởng làng sẽ cho xây khi đủ gỗ</li>
             <li>✋ Kéo chuột / WASD để di chuyển, cuộn chuột để phóng to</li>
             <li>⏸ Space tạm dừng · 1 2 3 đổi tốc độ · M tắt tiếng</li>
           </ul>
@@ -104,6 +119,13 @@ export class Hud {
     this.detail = q(this.root, '.detail');
     this.toasts = q(this.root, '.toasts');
     this.hint = q(this.root, '.hint');
+    this.phucText = q(this.root, '.phuc-text');
+    this.phucBar = q(this.root, '.phuc-bar i');
+    this.wishes = q(this.root, '.wishes');
+    this.wishes.addEventListener('click', (e) => {
+      const li = (e.target as HTMLElement).closest<HTMLElement>('[data-power]');
+      if (li) scene.usePower(li.dataset.power as PowerId);
+    });
     this.detail.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('.free') && this.detailFor) this.scene.clearIntent(this.detailFor);
     });
@@ -149,20 +171,31 @@ export class Hud {
       });
     }
 
-    const qList = q(this.root, '.quests ul');
-    for (const quest of QUESTS) {
-      const li = document.createElement('li');
-      li.textContent = quest.text;
-      qList.appendChild(li);
-      this.questItems.set(quest.id, li);
+    this.historyList = q(this.root, '.hlist');
+    this.historyList.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
+      const at = el && scene.state.history[Number(el.dataset.i)]?.at;
+      if (at) scene.panTo(at.x, at.y);
+    });
+
+    const pw = q(this.root, '.powers');
+    for (const id of POWER_ORDER) {
+      const def = POWERS[id];
+      const btn = document.createElement('button');
+      btn.className = 'bitem';
+      btn.title = def.desc;
+      btn.innerHTML = `<span class="bi">${def.icon}</span><span class="bn">${def.name}</span><span class="bc">${def.cost} 🙏</span>`;
+      btn.addEventListener('click', () => scene.usePower(id));
+      pw.appendChild(btn);
+      this.powerBtns.set(id, btn);
     }
 
-    const bb = q(this.root, '.bb-items');
+    const bb = q(this.root, '.plans');
     for (const id of BUILD_ORDER) {
       const def = BUILDINGS[id];
       const btn = document.createElement('button');
       btn.className = 'bitem';
-      btn.title = def.desc;
+      btn.title = `${def.desc}\nĐánh dấu chỗ xây — trưởng làng sẽ cho xây khi đủ ${def.cost.go} gỗ.`;
       btn.innerHTML = `<span class="bi">${def.icon}</span><span class="bn">${def.name}</span><span class="bc">${def.cost.go} 🪵</span>`;
       btn.addEventListener('click', () => (scene.buildMode === id ? scene.cancelBuild() : scene.startBuild(id)));
       bb.appendChild(btn);
@@ -221,16 +254,62 @@ export class Hud {
     setTimeout(() => el.remove(), 6600);
   }
 
-  /** Gọi khi chế độ xây dựng thay đổi. */
+  /** Gọi khi chế độ quy hoạch / quyền năng thay đổi. */
   refresh() {
     const mode = this.scene.buildMode;
+    const power = this.scene.powerMode;
     for (const [id, btn] of this.buildBtns) btn.classList.toggle('active', id === mode);
-    if (mode) {
+    for (const [id, btn] of this.powerBtns) btn.classList.toggle('active', id === power);
+    if (power) {
+      const def = POWERS[power];
       this.hint.hidden = false;
-      this.hint.innerHTML = `Đang đặt <b>${BUILDINGS[mode].name}</b> — nhấp chuột trái để đặt · chuột phải / Esc để huỷ`;
+      this.hint.innerHTML = `${def.icon} <b>${def.name}</b> — ${def.target === 'villager' ? 'nhấp vào một người' : 'nhấp vào chỗ muốn ban phép'} · chuột phải / Esc để huỷ`;
+    } else if (mode) {
+      this.hint.hidden = false;
+      this.hint.innerHTML = `📐 Quy hoạch <b>${BUILDINGS[mode].name}</b> — nhấp để đánh dấu, nhấp vào chỗ đã đánh dấu để bỏ · Shift để đặt nhiều · Esc để huỷ`;
     } else {
       this.hint.hidden = true;
     }
+  }
+
+  /** Sử làng: chia theo ngày, mới nhất ở trên; sự kiện có vị trí thì nhấp để tới đó. */
+  private updateHistory() {
+    const s = this.scene.state;
+    const h = s.history;
+    const key = `${h.length}:${h[0]?.time ?? ''}`;
+    if (key === this.historyKey) return;
+    this.historyKey = key;
+    let day = -1;
+    let html = '';
+    h.forEach((e, i) => {
+      const d = s.dayAt(e.time);
+      if (d !== day) {
+        day = d;
+        html += `<div class="hday">Ngày ${d}</div>`;
+      }
+      html += `<div class="hitem${e.at ? ' loc' : ''}" data-i="${i}"${e.at ? ' title="Nhấp để tới chỗ này"' : ''}>
+        <time>${s.clockAt(e.time)}</time><span>${e.text}</span></div>`;
+    });
+    this.historyList.innerHTML = html;
+  }
+
+  private updateWishes() {
+    const list = this.scene.villagers.filter((v) => v.wish);
+    const key = list.map((v) => `${v.def.id}:${v.wish!.type}`).join();
+    if (key === this.wishKey) return;
+    this.wishKey = key;
+    this.wishes.hidden = !list.length;
+    q(this.wishes, 'ul').innerHTML = list
+      .map((v) => {
+        const w = WISHES[v.wish!.type];
+        const p = POWERS[w.power];
+        return `<li data-power="${w.power}" title="Nhấp để ${p.name.toLowerCase()}">
+          <span class="wa">${v.def.avatar}</span>
+          <span class="wt"><b>${v.name}</b>“${v.wish!.text}”</span>
+          <span class="wp">${p.icon}</span>
+        </li>`;
+      })
+      .join('');
   }
 
   renderDetail() {
@@ -262,7 +341,7 @@ export class Hud {
       </div>
       <h4>Đang cân nhắc</h4>
       <div class="options"></div>
-      <h4>Báo mộng <small>— gợi ý một việc, nghe hay không là tuỳ họ</small></h4>
+      <h4>Báo mộng <small>— ${DREAM_COST} 🙏, gợi ý một việc, nghe hay không là tuỳ họ</small></h4>
       <div class="jobs">
         ${JOB_ORDER.map(
           (j) => `
@@ -311,11 +390,12 @@ export class Hud {
       .join('');
 
     const cooling = s.time < v.dreamReadyAt;
+    const poor = s.phuc < DREAM_COST;
     for (const b of this.detail.querySelectorAll<HTMLButtonElement>('[data-job]')) {
       const j = b.dataset.job as JobId;
       b.classList.toggle('active', v.activity === j);
       b.classList.toggle('intent', v.intent?.job === j);
-      b.disabled = cooling;
+      b.disabled = cooling || poor;
       if (j === 'nghi') continue;
       const sk = v.skills[j];
       q(b, '.jl').textContent = levelLabel(sk.level);
@@ -329,6 +409,9 @@ export class Hud {
     } else if (cooling) {
       intent.hidden = false;
       intent.textContent = '🌙 Vừa được báo mộng, đợi ít lâu rồi hãy báo tiếp';
+    } else if (poor) {
+      intent.hidden = false;
+      intent.textContent = `🙏 Cần ${DREAM_COST} Phúc để báo mộng`;
     } else {
       intent.hidden = true;
     }
@@ -337,6 +420,8 @@ export class Hud {
     const job = v.activity;
     if (job === 'nghi') {
       note.textContent = 'Đang nghỉ ngơi — hồi sức và vui vẻ hơn.';
+    } else if (job === 'le') {
+      note.textContent = 'Ra miếu thắp hương — thêm điểm Phúc cho Thành Hoàng.';
     } else {
       const m = v.mentor(job);
       const parts: string[] = [];
@@ -391,8 +476,12 @@ export class Hud {
       c.root.classList.toggle('hungry', v.hunger < 15);
     }
 
-    for (const [id, btn] of this.buildBtns) btn.disabled = !s.canAfford(BUILDINGS[id].cost) && this.scene.buildMode !== id;
-    for (const [id, li] of this.questItems) li.classList.toggle('done', this.scene.questDone.has(id));
+    const phuc = Math.floor(s.phuc);
+    this.phucText.textContent = `${phuc}`;
+    this.phucBar.style.width = `${(s.phuc / s.phucMax) * 100}%`;
+    for (const [id, btn] of this.powerBtns) btn.disabled = s.phuc < POWERS[id].cost && this.scene.powerMode !== id;
+    this.updateHistory();
+    this.updateWishes();
 
     this.updateDetail();
   }

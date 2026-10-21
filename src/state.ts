@@ -4,6 +4,12 @@ import type { BuildingId, ResKey } from './data';
 
 export type Cost = Partial<Record<ResKey, number>>;
 
+export interface HistoryEntry {
+  time: number;
+  text: string;
+  at?: { x: number; y: number };
+}
+
 export class GameState {
   res: Record<ResKey, number> = { go: 12, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0 };
   /** Thời gian game đã trôi qua (giây game). */
@@ -15,8 +21,31 @@ export class GameState {
     hunted: 0,
     fish: 0,
     cooked: 0,
-    built: { lua: 0, kho: 0, nha: 0 } as Record<BuildingId, number>,
+    wishes: 0,
+    built: { lua: 0, kho: 0, nha: 0, mieu: 0 } as Record<BuildingId, number>,
   };
+  /** Điểm Phúc của Thành Hoàng — dùng cho quyền năng và báo mộng. */
+  phuc = 30;
+  phucMax = 100;
+  rainUntil = 0;
+  fishUntil = 0;
+
+  get raining() {
+    return this.time < this.rainUntil;
+  }
+  get fishBoost() {
+    return this.time < this.fishUntil;
+  }
+
+  addPhuc(n: number) {
+    this.phuc = Math.min(this.phucMax, this.phuc + n);
+  }
+
+  spendPhuc(n: number) {
+    if (this.phuc < n) return false;
+    this.phuc -= n;
+    return true;
+  }
   events = new Phaser.Events.EventEmitter();
 
   get totalHours() {
@@ -28,13 +57,22 @@ export class GameState {
   get hour() {
     return this.totalHours % 24;
   }
-  /** "N2 · 07:30" cho một thời điểm game. */
-  stamp(t: number) {
-    const total = START_HOUR + (t / DAY_LENGTH) * 24;
-    const h = total % 24;
+  /** Ngày thứ mấy của một thời điểm game. */
+  dayAt(t: number) {
+    return Math.floor((START_HOUR + (t / DAY_LENGTH) * 24) / 24) + 1;
+  }
+
+  /** "07:30" cho một thời điểm game. */
+  clockAt(t: number) {
+    const h = (START_HOUR + (t / DAY_LENGTH) * 24) % 24;
     const hh = Math.floor(h);
     const mm = Math.floor((h - hh) * 6) * 10;
-    return `N${Math.floor(total / 24) + 1} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+
+  /** "N2 · 07:30" cho một thời điểm game. */
+  stamp(t: number) {
+    return `N${this.dayAt(t)} · ${this.clockAt(t)}`;
   }
 
   isSleepTime() {
@@ -65,7 +103,18 @@ export class GameState {
     this.setSpeed(this.speed === 0 ? this.lastSpeed : 0);
   }
 
-  log(msg: string) {
+  /** Sử làng: mọi sự kiện của thế giới, mới nhất ở đầu. */
+  history: HistoryEntry[] = [];
+
+  /** Ghi một sự kiện vào sử làng (kèm vị trí nếu có) và hiện thông báo. */
+  log(msg: string, at?: { x: number; y: number }) {
+    this.history.unshift({ time: this.time, text: msg, at });
+    if (this.history.length > 300) this.history.pop();
+    this.events.emit('log', msg);
+  }
+
+  /** Nhắc nhở thoáng qua cho người chơi — không ghi vào sử làng. */
+  notify(msg: string) {
     this.events.emit('log', msg);
   }
 }

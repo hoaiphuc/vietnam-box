@@ -72,12 +72,22 @@ export class ResourceNode {
     this.timer -= dt;
     const half = REGROW[this.kind] / 2;
     if (this.kind === 'tree' && before > half && this.timer <= half) this.setTex('sapling');
-    if (this.timer <= 0) {
-      this.grown = true;
-      this.setTex(this.fullTex);
-      this.sprite.setScale(this.baseScale * 0.4);
-      this.scene.tweens.add({ targets: this.sprite, scale: this.baseScale, duration: 700, ease: 'Back.easeOut' });
-    }
+    if (this.timer <= 0) this.regrow();
+  }
+
+  /** Thành Hoàng ban lộc: mọc lại ngay. Trả về true nếu có tác dụng. */
+  bless() {
+    if (this.grown) return false;
+    this.regrow();
+    return true;
+  }
+
+  private regrow() {
+    this.grown = true;
+    this.timer = 0;
+    this.setTex(this.fullTex);
+    this.sprite.setScale(this.baseScale * 0.4);
+    this.scene.tweens.add({ targets: this.sprite, scale: this.baseScale, duration: 700, ease: 'Back.easeOut' });
   }
 
   destroy() {
