@@ -4,13 +4,14 @@ import { AudioEngine, loadAudioSettings, saveAudioSettings } from '../audio/Audi
 import { Music } from '../audio/Music';
 import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
-import { BUILDINGS, FOOD_ORDER, JOBS, type BuildingId, type JobId, type ResKey } from '../data';
+import { BUILDINGS, FOOD_ORDER, JOBS, RESOURCES, type BuildingId, type JobId, type ResKey } from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
 import { Building } from '../entities/Building';
 import { ResourceNode } from '../entities/ResourceNode';
 import { Villager, type VillagerDef } from '../entities/Villager';
 import { QUESTS } from '../quests';
 import { GameState } from '../state';
+import { rollTraits, type TraitId } from '../traits';
 import { Hud } from '../ui/Hud';
 import { generateMap, type NodeKind } from '../world/mapgen';
 import { findPath, type Pt } from '../world/pathfinding';
@@ -25,24 +26,25 @@ export interface FishingSpot {
   reservedBy: Villager | null;
 }
 
-const FAMILY: VillagerDef[] = [
+/** Mỗi người có một nét tính cách cố định, thêm một nét ngẫu nhiên mỗi ván. */
+const FAMILY: (Omit<VillagerDef, 'traits'> & { traits: TraitId[] })[] = [
   {
     id: 'bo',
     name: 'Bố Tám',
-    role: 'Trụ cột gia đình, khoẻ mạnh',
+    role: 'Trụ cột gia đình',
     avatar: '👨🏻',
     tex: 'v_bo',
-    job: 'chat',
     skills: { chat: 2, san: 1, xay: 1 },
+    traits: ['khoeManh'],
   },
   {
     id: 'me',
     name: 'Mẹ Lan',
-    role: 'Khéo tay, nấu nướng giỏi',
+    role: 'Người nội trợ đảm đang',
     avatar: '👩🏻',
     tex: 'v_me',
-    job: 'hai',
     skills: { nau: 2, hai: 1, ca: 1 },
+    traits: ['kheoTay'],
   },
   {
     id: 'con',
@@ -50,8 +52,8 @@ const FAMILY: VillagerDef[] = [
     role: 'Cô bé ham học — học nghề nhanh x1.5',
     avatar: '👧🏻',
     tex: 'v_con',
-    job: 'nghi',
     skills: { hai: 1 },
+    traits: ['toMo'],
     child: true,
   },
 ];
@@ -103,6 +105,7 @@ export class GameScene extends Phaser.Scene {
   private hudTimer = 0;
   private questTimer = 0;
   private respawnTimer = 0;
+  private planTimer = 0;
   private realTime = 0;
   private walkFn = (x: number, y: number) => this.world.walkable(x, y);
 
@@ -130,7 +133,10 @@ export class GameScene extends Phaser.Scene {
     const v = data.village;
     this.homeTile = { x: v.x, y: v.y + 1 };
     this.placeBuilding('nha', v.x - 1, v.y - 2, true);
-    FAMILY.forEach((d, i) => this.villagers.push(new Villager(this, d, v.x - 1 + i, v.y + 1)));
+    FAMILY.forEach((d, i) => {
+      const def: VillagerDef = { ...d, traits: rollTraits(d.traits, 1) };
+      this.villagers.push(new Villager(this, def, v.x - 1 + i, v.y + 1));
+    });
     for (let i = 0; i < 7; i++) this.spawnAnimal(i < 4 ? 'ga' : 'heo');
 
     this.darkness = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x0c1a48).setOrigin(0).setAlpha(0).setDepth(50000);
@@ -495,11 +501,7 @@ export class GameScene extends Phaser.Scene {
     this.state.pay(def.cost);
     this.placeBuilding(id, x, y, false);
     this.sfx('place');
-    if (!this.villagers.some((v) => v.job === 'xay')) {
-      this.state.log(`Đã đặt móng ${def.name}. Hãy giao việc Xây dựng 🔨 cho ai đó!`);
-    } else {
-      this.state.log(`Đã đặt móng ${def.name} ${def.icon}`);
-    }
+    this.state.log(`Đã đặt móng ${def.name} ${def.icon} — dân làng sẽ tự lo xây`);
     if (!shift || !this.state.canAfford(def.cost)) this.cancelBuild();
   }
 
@@ -526,16 +528,145 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.stopFollow();
   }
 
-  assignJob(v: Villager, job: JobId) {
-    if (v.job === job) return;
-    v.setJob(job);
-    const lv = v.skills[job].level;
-    if (job === 'nghi') this.state.log(`${v.name} được nghỉ ngơi ${JOBS[job].icon}`);
-    else if (lv === 0) {
-      const m = v.mentor(job);
-      this.state.log(`${v.name} bắt đầu học ${JOBS[job].name.toLowerCase()}${m ? ` — ${m.name} sẽ chỉ bảo` : ''} ${JOBS[job].icon}`);
-    } else this.state.log(`${v.name} chuyển sang ${JOBS[job].name.toLowerCase()} ${JOBS[job].icon}`);
+  /** Thành Hoàng báo mộng gợi ý một việc — người đó có thể nghe hoặc không. */
+  dream(v: Villager, job: JobId) {
+    const r = v.receiveDream(job);
+    if (r === 'cooldown') return;
+    const verb = JOBS[job].name.toLowerCase();
+    this.sfx(r === 'accepted' ? 'levelUp' : 'click');
+    this.state.log(r === 'accepted' ? `💭 ${v.name} nghe lời báo mộng, đi ${verb}` : `💭 ${v.name} không nghe lời báo mộng (${verb})`);
     this.hud.renderDetail();
+  }
+
+  clearIntent(v: Villager) {
+    v.clearIntent();
+    this.hud.renderDetail();
+  }
+
+  // ------------------------------------------------------------ làng tự vận hành
+
+  private needsCache: { time: number; need: Record<JobId, number> } | null = null;
+
+  /**
+   * Mức cần thiết của từng việc với cả làng (0..1), -1 nếu hiện không làm được.
+   * Dân làng cộng thêm tính cách, tay nghề của riêng mình để tự chọn việc.
+   */
+  villageNeeds(): Record<JobId, number> {
+    if (this.needsCache?.time === this.state.time) return this.needsCache.need;
+    const r = this.state.res;
+    const pop = this.villagers.length;
+    const foodVal = FOOD_ORDER.reduce((s, k) => s + r[k] * (RESOURCES[k].food ?? 0), 0);
+    const hungry = Phaser.Math.Clamp(1 - foodVal / (pop * 150), 0, 1);
+    const fire = this.buildings.some((b) => b.id === 'lua' && b.built);
+    const raw = r.thit + r.ca;
+    const rawFull = raw >= 8 ? 0.4 : 1;
+    const any = (kinds: NodeKind[]) => this.nodes.some((n) => n.grown && !n.reservedBy && kinds.includes(n.kind));
+
+    const need: Record<JobId, number> = {
+      nghi: 0,
+      hai: any(['banana']) ? 0.15 + hungry * 0.85 : -1,
+      ca: (0.1 + hungry * (fire ? 0.8 : 0.35)) * rawFull,
+      san: this.animals.some((a) => a.alive && !a.reservedBy) ? (0.1 + hungry * (fire ? 0.8 : 0.3)) * rawFull : -1,
+      nau: fire && raw > 0 ? Math.max(Math.min(1, 0.35 + raw * 0.12), hungry) : -1,
+      chat: any(['tree', 'bamboo']) ? Phaser.Math.Clamp(0.15 + (1 - r.go / 40) * 0.7, 0.1, 0.85) : -1,
+      xay: this.buildings.some((b) => !b.built) ? 0.9 : -1,
+    };
+    this.needsCache = { time: this.state.time, need };
+    return need;
+  }
+
+  private workSpots: Pt[] = [];
+
+  /** Ghi lại nơi dân hay làm việc — trưởng làng dựa vào đó để chọn chỗ dựng kho. */
+  recordWork(x: number, y: number) {
+    this.workSpots.push({ x: Math.floor(x / TILE), y: Math.floor(y / TILE) });
+    if (this.workSpots.length > 24) this.workSpots.shift();
+  }
+
+  private chiefV: Villager | null = null;
+
+  /** Uy tín: tổng tay nghề của người lớn. */
+  private respect(v: Villager) {
+    return Object.values(v.skills).reduce((a, k) => a + k.level, 0);
+  }
+
+  /** Trưởng làng hiện tại — chỉ đổi khi có người uy tín hơn hẳn (xem `electChief`). */
+  chief(): Villager | null {
+    if (!this.chiefV) {
+      const adults = this.villagers.filter((v) => !v.def.child);
+      this.chiefV = adults.sort((a, b) => this.respect(b) - this.respect(a))[0] ?? null;
+    }
+    return this.chiefV;
+  }
+
+  private electChief() {
+    const cur = this.chief();
+    if (!cur) return;
+    const rival = this.villagers
+      .filter((v) => !v.def.child && v !== cur)
+      .sort((a, b) => this.respect(b) - this.respect(a))[0];
+    if (!rival || this.respect(rival) < this.respect(cur) + 3) return;
+    this.chiefV = rival;
+    rival.addMood(10);
+    rival.say('Được cả làng tin tưởng, mình sẽ cố gắng!');
+    rival.note('👑 Được cả làng bầu làm trưởng làng');
+    this.state.log(`👑 Cả làng bầu ${rival.name} làm trưởng làng mới`);
+  }
+
+  /** Ô trống để đứng/ngồi: đất liền, không có công trình. */
+  isFree(x: number, y: number) {
+    return this.world.isLand(x, y) && !this.occupied.has(y * MAP_W + x);
+  }
+
+  /** Trưởng làng tự quyết định dựng công trình mới khi làng cần và đủ gỗ. */
+  private plan() {
+    this.electChief();
+    const chief = this.chief();
+    if (!chief || chief.asleep || this.buildings.some((b) => !b.built)) return;
+    const go = this.state.res.go;
+    const count = (id: BuildingId) => this.buildings.filter((b) => b.id === id).length;
+    let id: BuildingId | null = null;
+    let why = '';
+    if (!count('lua') && go >= 8) {
+      id = 'lua';
+      why = 'Phải có đống lửa để nướng thịt, tối còn sưởi ấm';
+    } else if (!count('kho') && go >= 26) {
+      id = 'kho';
+      why = 'Gỗ nhiều rồi, dựng cái kho gần chỗ làm cho tiện';
+    } else if (count('nha') < 2 && go >= 45) {
+      id = 'nha';
+      why = 'Dựng thêm gian nhà cho cả nhà rộng rãi';
+    }
+    if (!id) return;
+
+    const h = this.homeTile;
+    let target: Pt = h;
+    if (id === 'kho' && this.workSpots.length) {
+      const cx = this.workSpots.reduce((s, p) => s + p.x, 0) / this.workSpots.length;
+      const cy = this.workSpots.reduce((s, p) => s + p.y, 0) / this.workSpots.length;
+      target = { x: Math.round(h.x + (cx - h.x) * 0.5), y: Math.round(h.y + (cy - h.y) * 0.5) };
+    }
+    const spot = this.findBuildSpot(id, target, id === 'kho' ? 0 : 2);
+    if (!spot) return;
+    const def = BUILDINGS[id];
+    this.state.pay(def.cost);
+    this.placeBuilding(id, spot.x, spot.y, false);
+    this.sfx('place', (spot.x + def.w / 2) * TILE, (spot.y + def.h) * TILE);
+    chief.say(why);
+    chief.note(`🏛️ Quyết định dựng ${def.name}: ${why}`);
+    this.state.log(`🏛️ Trưởng làng ${chief.name} quyết định dựng ${def.name} ${def.icon}`);
+  }
+
+  private findBuildSpot(id: BuildingId, c: Pt, minR: number): Pt | null {
+    for (let r = minR; r <= 12; r++) {
+      const ring: Pt[] = [];
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push({ x: c.x + dx, y: c.y + dy });
+      Phaser.Utils.Array.Shuffle(ring);
+      const ok = ring.find((p) => this.canPlace(id, p.x, p.y));
+      if (ok) return ok;
+    }
+    return null;
   }
 
   private villagerAt(wx: number, wy: number) {
@@ -639,6 +770,12 @@ export class GameScene extends Phaser.Scene {
       if (this.respawnTimer > DAY_LENGTH / 5) {
         this.respawnTimer = 0;
         if (this.animals.length < 9) this.spawnAnimal(Math.random() < 0.6 ? 'ga' : 'heo');
+      }
+
+      this.planTimer += dt;
+      if (this.planTimer > 8) {
+        this.planTimer = 0;
+        this.plan();
       }
 
       this.questTimer += dt;

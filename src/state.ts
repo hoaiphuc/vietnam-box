@@ -28,6 +28,15 @@ export class GameState {
   get hour() {
     return this.totalHours % 24;
   }
+  /** "N2 · 07:30" cho một thời điểm game. */
+  stamp(t: number) {
+    const total = START_HOUR + (t / DAY_LENGTH) * 24;
+    const h = total % 24;
+    const hh = Math.floor(h);
+    const mm = Math.floor((h - hh) * 6) * 10;
+    return `N${Math.floor(total / 24) + 1} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+
   isSleepTime() {
     const h = this.hour;
     return h >= 21 || h < 5;

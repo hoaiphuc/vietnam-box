@@ -77,7 +77,7 @@ export class Animal {
     this.fleeCd -= dt;
     if (this.fleeT <= 0 && this.fleeCd <= 0) {
       for (const v of this.scene.villagers) {
-        if (v.job === 'san' && !v.inside && Phaser.Math.Distance.Between(v.x, v.y, this.x, this.y) < 70) {
+        if (v.activity === 'san' && !v.inside && Phaser.Math.Distance.Between(v.x, v.y, this.x, this.y) < 70) {
           this.startle(v.x, v.y);
           break;
         }
