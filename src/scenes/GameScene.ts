@@ -4,7 +4,20 @@ import { AudioEngine, loadAudioSettings, saveAudioSettings } from '../audio/Audi
 import { Music } from '../audio/Music';
 import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
-import { BUILDINGS, FOOD_ORDER, JOBS, RESOURCES, SKILL_JOBS, type BuildingId, type JobId, type ResKey } from '../data';
+import {
+  bestHouseTier,
+  BUILDINGS,
+  costWords,
+  FOOD_ORDER,
+  HOUSE_TIERS,
+  JOBS,
+  RESOURCES,
+  SKILL_JOBS,
+  upgradeCost,
+  type BuildingId,
+  type JobId,
+  type ResKey,
+} from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
 import { Building, type BuildState } from '../entities/Building';
 import { ResourceNode } from '../entities/ResourceNode';
@@ -358,7 +371,7 @@ export class GameScene extends Phaser.Scene {
     return this.nearest(this.buildings.filter((b) => b.built && b.id === id), x, y, this.bPos);
   }
   nearestSite(x: number, y: number) {
-    return this.nearest(this.buildings.filter((b) => !b.built && !b.planned), x, y, this.bPos);
+    return this.nearest(this.buildings.filter((b) => b.isSite), x, y, this.bPos);
   }
   findNode(kinds: NodeKind[], x: number, y: number) {
     return this.nearest(
@@ -444,8 +457,19 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ công trình
 
-  placeBuilding(id: BuildingId, tx: number, ty: number, state: BuildState) {
-    const b = new Building(this, id, tx, ty, state);
+  /** Kiểu nhà tốt nhất làng đã biết dựng. */
+  bestHouseTier() {
+    return bestHouseTier((d) => this.state.has(d));
+  }
+
+  /** Kiểu nhà tốt nhất làng đủ vật liệu dựng ngay, hoặc null. */
+  private affordableHouseTier() {
+    for (let t = this.bestHouseTier(); t >= 0; t--) if (this.state.canAfford(HOUSE_TIERS[t].cost)) return t;
+    return null;
+  }
+
+  placeBuilding(id: BuildingId, tx: number, ty: number, state: BuildState, tier = id === 'nha' ? this.bestHouseTier() : 0) {
+    const b = new Building(this, id, tx, ty, state, tier);
     for (const t of b.tiles()) {
       const node = this.nodeGrid.get(t.y * MAP_W + t.x);
       if (node) this.removeNode(node);
@@ -462,7 +486,7 @@ export class GameScene extends Phaser.Scene {
         if (!this.world.isLand(x, y) || this.occupied.has(y * MAP_W + x)) return false;
         if (this.isEntrance(x, y)) return false;
         const n = this.nodeGrid.get(y * MAP_W + x);
-        if (n && (n.grown || n.kind === 'banana')) return false;
+        if (n && (n.grown || n.kind === 'banana' || n.kind === 'clay')) return false;
       }
     }
     const ex = tx + Math.floor(def.w / 2);
@@ -476,10 +500,43 @@ export class GameScene extends Phaser.Scene {
 
   onBuilt(b: Building) {
     this.state.stats.built[b.id]++;
-    this.state.log(`${b.def.icon} Đã xây xong ${b.def.name}!`, { x: b.px, y: b.py });
+    this.state.log(`${b.icon} Đã xây xong ${b.name}!`, { x: b.px, y: b.py });
     this.sfx('built');
-    this.floatText(b.px, b.py - b.sprite.height, `${b.def.name} hoàn thành!`, '#ffe27a');
+    this.floatText(b.px, b.py - b.sprite.height, `${b.name} hoàn thành!`, '#ffe27a');
     if (b.def.home) this.assignHome(b);
+  }
+
+  /** "nhà Bố Tám" — gọi nhà theo người lớn đang ở. */
+  private houseOf(b: Building) {
+    const owner = this.villagers.find((v) => v.home === b && !v.isChild);
+    return owner ? `nhà ${owner.name}` : 'một nếp nhà';
+  }
+
+  onUpgraded(b: Building, from: number) {
+    const tier = HOUSE_TIERS[b.tier];
+    this.state.stats.upgraded++;
+    const whose = this.houseOf(b);
+    this.state.log(
+      `${tier.icon} ${whose[0].toUpperCase()}${whose.slice(1)} sửa từ ${HOUSE_TIERS[from].name.toLowerCase()} thành ${tier.name.toLowerCase()}`,
+      { x: b.px, y: b.py },
+    );
+    this.sfx('built');
+    this.floatText(b.px, b.py - b.sprite.height, `${tier.name}!`, '#ffe27a');
+    for (const v of this.villagers) {
+      if (v.home !== b) continue;
+      v.addMood(8);
+      v.remember('nha_moi', tier.icon, `Nhà mình được sửa thành ${tier.name.toLowerCase()}`, 3);
+    }
+    this.villagers.find((v) => v.home === b && !v.isChild)?.announce(`Nhà mới khang trang quá! ${tier.icon}`);
+  }
+
+  /** Nhà cũ nhất còn sửa được lên kiểu tốt hơn, kèm kiểu sẽ sửa thành. */
+  private nextUpgrade() {
+    const best = this.bestHouseTier();
+    const house = this.buildings
+      .filter((b) => b.isHouse && b.built && b.upgrading === null && b.tier < best)
+      .sort((a, b) => a.tier - b.tier)[0];
+    return house ? { house, tier: house.tier + 1 } : null;
   }
 
   private removeBuilding(b: Building) {
@@ -499,7 +556,8 @@ export class GameScene extends Phaser.Scene {
     this.cancelBuild();
     this.cancelPower();
     this.buildMode = id;
-    this.ghost = this.add.image(0, 0, BUILDINGS[id].tex).setOrigin(0.5, 1).setAlpha(0.7).setDepth(49001);
+    const tex = id === 'nha' ? HOUSE_TIERS[this.bestHouseTier()].tex : BUILDINGS[id].tex;
+    this.ghost = this.add.image(0, 0, tex).setOrigin(0.5, 1).setAlpha(0.7).setDepth(49001);
     this.hud.refresh();
   }
 
@@ -539,7 +597,7 @@ export class GameScene extends Phaser.Scene {
     if (existing?.planned) {
       this.removeBuilding(existing);
       this.sfx('click');
-      this.state.log(`📐 Thành Hoàng bỏ quy hoạch ${existing.def.name}`, { x: existing.px, y: existing.py });
+      this.state.log(`📐 Thành Hoàng bỏ quy hoạch ${existing.name}`, { x: existing.px, y: existing.py });
       return;
     }
     const { x, y } = this.ghostTile;
@@ -547,9 +605,9 @@ export class GameScene extends Phaser.Scene {
       this.state.notify('Chỗ này không xây được — cần đất trống, không có cây');
       return;
     }
-    this.placeBuilding(id, x, y, 'planned');
+    const planned = this.placeBuilding(id, x, y, 'planned');
     this.sfx('place');
-    this.state.log(`📐 Thành Hoàng quy hoạch ${def.name} — trưởng làng sẽ cho xây khi đủ ${def.cost.go} gỗ`, {
+    this.state.log(`📐 Thành Hoàng quy hoạch ${planned.name} — trưởng làng sẽ cho xây khi đủ ${costWords(planned.cost)}`, {
       x: (x + def.w / 2) * TILE,
       y: (y + def.h) * TILE,
     });
@@ -726,10 +784,16 @@ export class GameScene extends Phaser.Scene {
     this.selected = v;
     v?.setSelected(true);
     if (v) this.sfx('select');
+    if (v?.thought) v.say(v.thought);
     const cam = this.cameras.main;
     if (v) cam.startFollow(v, false, 0.08, 0.08);
     else cam.stopFollow();
     this.hud.renderDetail();
+  }
+
+  /** Số dân làng đang nói thành tiếng một suy nghĩ thường ngày. */
+  chatterCount() {
+    return this.villagers.filter((v) => v.chattering).length;
   }
 
   focus(v: Villager) {
@@ -829,14 +893,45 @@ export class GameScene extends Phaser.Scene {
       ca: (0.1 + hungry * (fire ? 0.8 : 0.35)) * rawFull,
       san: this.animals.some((a) => a.alive && !a.reservedBy) ? (0.1 + hungry * (fire ? 0.8 : 0.3)) * rawFull : -1,
       nau: fire && raw > 0 ? Math.max(Math.min(1, 0.35 + raw * 0.12), hungry) : -1,
-      chat: any(['tree', 'bamboo']) ? Phaser.Math.Clamp(0.15 + (1 - r.go / 40) * 0.7, 0.1, 0.85) : -1,
+      chat: any(['tree', 'bamboo']) ? Phaser.Math.Clamp(0.15 + (1 - Math.min(r.go / 40, r.tre / 25)) * 0.7, 0.1, 0.85) : -1,
       cay: !st.has('ruong') || !fields.length ? -1 : ripe ? 0.75 + hungry * 0.2 : 0.35 + hungry * 0.4,
-      nung: !st.has('gom') || !kiln || r.go < 3 ? -1 : 0.2 + (r.gom < 6 ? 0.3 : 0) + (market ? 0.15 : 0),
-      xay: this.buildings.some((b) => !b.built && !b.planned) ? 0.9 : -1,
+      nung:
+        !st.has('gom') || !kiln || r.go < 3
+          ? -1
+          : 0.2 + (r.gom < 6 ? 0.3 : 0) + (market ? 0.15 : 0) + (this.demandWithUpgrade('gach') > r.gach ? 0.35 : 0),
+      xay: this.buildings.some((b) => b.isSite) ? 0.9 : -1,
       le: 0,
     };
     this.needsCache = { time: this.state.time, need };
     return need;
+  }
+
+  /** Vật liệu làng còn cần cho các chỗ quy hoạch và các công trình sắp dựng (chợ, đình). */
+  materialDemand(k: ResKey) {
+    const st = this.state;
+    let n = 0;
+    for (const b of this.buildings) if (b.planned) n += b.cost[k] ?? 0;
+    const has = (id: BuildingId) => this.buildings.some((b) => b.id === id);
+    if (st.has('cho') && !has('cho')) n += BUILDINGS.cho.cost[k] ?? 0;
+    if (st.has('dinh') && !has('dinh')) n += BUILDINGS.dinh.cost[k] ?? 0;
+    return n;
+  }
+
+  /** Như `materialDemand`, cộng thêm phần cho lần sửa nhà tới — để lò biết nung gạch đón trước. */
+  private demandWithUpgrade(k: ResKey) {
+    const up = this.nextUpgrade();
+    return this.materialDemand(k) + (up ? (upgradeCost(up.tier)[k] ?? 0) : 0);
+  }
+
+  /** Lò nên nung gạch ngói thay vì đồ gốm: làng đang cần, hoặc gốm đủ bán rồi thì để dành ít gạch. */
+  wantsBricks() {
+    const r = this.state.res;
+    return r.gach < this.demandWithUpgrade('gach') || (r.gach < 6 && r.gom >= 6);
+  }
+
+  /** Đất sét cần có sẵn: cho mẻ nung tới và cho công trình. */
+  clayNeed() {
+    return (this.wantsBricks() ? 2 : 1) + this.materialDemand('dat');
   }
 
   private workSpots: Pt[] = [];
@@ -872,7 +967,7 @@ export class GameScene extends Phaser.Scene {
     if (!rival || this.respect(rival) < this.respect(cur) + 3) return;
     this.chiefV = rival;
     rival.addMood(10);
-    rival.say('Được cả làng tin tưởng, mình sẽ cố gắng!');
+    rival.announce('Được cả làng tin tưởng, mình sẽ cố gắng!');
     rival.note('👑 Được cả làng bầu làm trưởng làng');
     this.state.log(`👑 Cả làng bầu ${rival.name} làm trưởng làng mới`, { x: rival.x, y: rival.y });
   }
@@ -886,21 +981,20 @@ export class GameScene extends Phaser.Scene {
   private plan() {
     this.electChief();
     const chief = this.chief();
-    if (!chief || chief.asleep || this.buildings.some((b) => !b.built && !b.planned)) return;
-    const go = this.state.res.go;
-
+    if (!chief || chief.asleep || this.buildings.some((b) => b.isSite)) return;
     // Ưu tiên chỗ Thành Hoàng đã quy hoạch.
     const planned = this.buildings.filter((b) => b.planned);
     if (planned.length) {
-      const b = planned.find((p) => this.state.canAfford(p.def.cost));
-      if (!b) return; // để dành gỗ cho quy hoạch
-      this.state.pay(b.def.cost);
+      const b = planned.find((p) => (p.isHouse ? this.affordableHouseTier() !== null : this.state.canAfford(p.cost)));
+      if (!b) return; // để dành vật liệu cho quy hoạch
+      if (b.isHouse) b.setTier(this.affordableHouseTier()!);
+      this.state.pay(b.cost);
       b.fund();
       this.sfx('place', b.px, b.py);
-      const why = `Làm theo ý Thành Hoàng, dựng ${b.def.name.toLowerCase()} thôi`;
-      chief.say(why);
+      const why = `Làm theo ý Thành Hoàng, dựng ${b.name.toLowerCase()} thôi`;
+      chief.announce(why);
       chief.note(`🏛️ ${why}`);
-      this.state.log(`🏛️ Trưởng làng ${chief.name} cho xây ${b.def.name} theo quy hoạch`, { x: b.px, y: b.py });
+      this.state.log(`🏛️ Trưởng làng ${chief.name} cho xây ${b.name} theo quy hoạch`, { x: b.px, y: b.py });
       return;
     }
 
@@ -919,39 +1013,40 @@ export class GameScene extends Phaser.Scene {
     const homeless = this.villagers.filter((v) => v.needsHome && !v.isChild);
     const couple = homeless.find((v) => v.spouse?.alive && v.spouse.needsHome);
     const fields = count('ruong');
+    const can = (id: BuildingId) => (id === 'nha' ? this.affordableHouseTier() !== null : st.canAfford(BUILDINGS[id].cost));
     let id: BuildingId | null = null;
     let why = '';
-    if (!count('lua') && go >= 8) {
+    if (!count('lua') && can('lua')) {
       id = 'lua';
       why = 'Phải có đống lửa để nướng thịt, tối còn sưởi ấm';
-    } else if ((couple || homeless.length >= 2) && go >= 30) {
+    } else if ((couple || homeless.length >= 2) && can('nha')) {
       id = 'nha';
       why = couple
         ? `${couple.name} và ${couple.spouse!.name} cần một mái nhà riêng`
         : 'Người mới đến cần có chỗ ở đàng hoàng';
-    } else if (st.has('ruong') && !fields && go >= 6) {
+    } else if (st.has('ruong') && !fields && can('ruong')) {
       id = 'ruong';
       why = 'Đắp thửa ruộng đầu tiên, cấy thử lúa nước';
-    } else if (!count('mieu') && count('lua') && go >= 15) {
+    } else if (!count('mieu') && count('lua') && can('mieu')) {
       id = 'mieu';
       why = 'Lập miếu thờ Thành Hoàng, cầu cho làng yên ấm';
-    } else if (!count('kho') && go >= 26) {
+    } else if (!count('kho') && can('kho') && st.res.go >= 20) {
       id = 'kho';
-      why = 'Gỗ nhiều rồi, dựng cái kho gần chỗ làm cho tiện';
-    } else if (st.has('gom') && !count('lo') && go >= 18) {
+      why = 'Gỗ tre nhiều rồi, dựng cái kho gần chỗ làm cho tiện';
+    } else if (st.has('gom') && !count('lo') && can('lo')) {
       id = 'lo';
       why = 'Xây lò nung, làm chum vại bát đĩa cho cả làng';
-    } else if (st.has('cho') && !count('cho') && go >= 25) {
+    } else if (st.has('cho') && !count('cho') && can('cho')) {
       id = 'cho';
       why = 'Dựng lều chợ, họp phiên đổi chác với làng bên';
-    } else if (st.has('dinh') && !count('dinh') && go >= 45) {
+    } else if (st.has('dinh') && !count('dinh') && can('dinh')) {
       id = 'dinh';
       why = 'Dựng ngôi đình cho làng hội họp, thờ phụng';
-    } else if (st.has('ruong') && fields < Math.ceil(pop / 2) && go >= 12) {
+    } else if (st.has('ruong') && fields < Math.ceil(pop / 2) && st.res.tre >= 10) {
       id = 'ruong';
       why = 'Đắp thêm ruộng, cho cả làng đủ gạo ăn';
     }
-    if (!id) return;
+    if (!id) return this.planUpgrade(chief);
 
     const h = this.homeTile;
     let target: Pt = h;
@@ -968,15 +1063,32 @@ export class GameScene extends Phaser.Scene {
     const minR = id === 'kho' || id === 'ruong' ? 0 : id === 'nha' || id === 'cho' ? 3 : id === 'dinh' ? 4 : 2;
     const spot = this.findBuildSpot(id, target, minR);
     if (!spot) return;
-    const def = BUILDINGS[id];
-    this.state.pay(def.cost);
-    this.placeBuilding(id, spot.x, spot.y, 'site');
-    this.sfx('place', (spot.x + def.w / 2) * TILE, (spot.y + def.h) * TILE);
+    const b = this.placeBuilding(id, spot.x, spot.y, 'site', id === 'nha' ? this.affordableHouseTier()! : 0);
+    this.state.pay(b.cost);
+    this.sfx('place', b.px, b.py);
     chief.say(why);
-    chief.note(`🏛️ Quyết định dựng ${def.name}: ${why}`);
-    this.state.log(`🏛️ Trưởng làng ${chief.name} quyết định dựng ${def.name}`, {
-      x: (spot.x + def.w / 2) * TILE,
-      y: (spot.y + def.h) * TILE,
+    chief.note(`🏛️ Quyết định dựng ${b.name}: ${why}`);
+    this.state.log(`🏛️ Trưởng làng ${chief.name} quyết định dựng ${b.name}`, { x: b.px, y: b.py });
+  }
+
+  /** Không còn gì cần dựng mới thì trưởng làng cho sửa dần nhà cũ lên kiểu nhà của thời mới. */
+  private planUpgrade(chief: Villager) {
+    const up = this.nextUpgrade();
+    if (!up) return;
+    const cost = upgradeCost(up.tier);
+    if (!this.state.canAfford(cost)) return;
+    // Không lấy gạch đang để dành cho chợ, đình hay chỗ Thành Hoàng quy hoạch.
+    if (cost.gach && this.state.res.gach - cost.gach < this.materialDemand('gach')) return;
+    this.state.pay(cost);
+    up.house.startUpgrade(up.tier);
+    const tier = HOUSE_TIERS[up.tier];
+    const whose = this.houseOf(up.house);
+    const why = `Làng khá lên rồi, sửa ${whose} thành ${tier.name.toLowerCase()}`;
+    chief.say(why);
+    chief.note(`🏛️ ${why}`);
+    this.state.log(`🏛️ Trưởng làng ${chief.name} cho sửa ${whose} thành ${tier.name.toLowerCase()}`, {
+      x: up.house.px,
+      y: up.house.py,
     });
   }
 
@@ -1072,8 +1184,8 @@ export class GameScene extends Phaser.Scene {
       p.needsHome = true;
       p.remember('cuoi', '💍', `Nên duyên vợ chồng với ${q.name}`, 3);
     }
-    a.say('Mình về chung một nhà nhé? 💕', 5000);
-    b.say('Ừ! 💕', 5000);
+    a.announce('Mình về chung một nhà nhé? 💕', 5000);
+    b.announce('Ừ! 💕', 5000);
     this.sfx('quest', a.x, a.y);
     this.sparkle(a.x, a.y - 30, 16);
     this.state.log(`💍 ${a.name} và ${b.name} nên duyên vợ chồng`, { x: a.x, y: a.y });
@@ -1221,7 +1333,7 @@ export class GameScene extends Phaser.Scene {
     const at = { x: sx * TILE, y: sy * TILE };
     if (Math.random() < 0.6) {
       const v = make(Math.random() < 0.5 ? 'nam' : 'nu', Phaser.Math.Between(18, 28));
-      v.say('Chào cả làng! Cho mình ở lại với nhé');
+      v.announce('Chào cả làng! Cho mình ở lại với nhé');
       st.log(`🧳 ${v.name} từ làng bên tìm đến, xin ở lại làng`, at);
       return;
     }
@@ -1239,7 +1351,7 @@ export class GameScene extends Phaser.Scene {
       this.addBond(a, kid, 80);
       this.addBond(b, kid, 80);
     }
-    a.say('Làng mình đẹp quá, ở lại đây thôi!');
+    a.announce('Làng mình đẹp quá, ở lại đây thôi!');
     st.log(`🧳 Vợ chồng ${a.name} – ${b.name}${kid ? ` cùng ${kid.name}` : ''} từ làng bên tìm đến lập nghiệp`, at);
   }
 
@@ -1262,7 +1374,7 @@ export class GameScene extends Phaser.Scene {
       m.note('🏠 Dọn về nhà mới');
     }
     const adults = members.filter((m) => !m.isChild);
-    members[0].say('Có nhà mới rồi, vui quá!');
+    members[0].announce('Có nhà mới rồi, vui quá!');
     this.state.log(
       husbandOrWife ? `🏠 Vợ chồng ${adults.map((m) => m.name).join(' – ')} dọn về nhà mới` : `🏠 ${adults.map((m) => m.name).join(', ')} dọn về nhà mới`,
       { x: b.px, y: b.py },
@@ -1299,7 +1411,7 @@ export class GameScene extends Phaser.Scene {
     const d = DISCOVERIES[id];
     v.addMood(15);
     v.remember(`pk_${id}`, '💡', `Tìm ra ${d.name.toLowerCase()} cho cả làng`, 5);
-    v.say(`💡 ${GameScene.DISC_LINES[id]}`, 6000);
+    v.announce(`💡 ${GameScene.DISC_LINES[id]}`, 6000);
     this.sfx('quest', v.x, v.y);
     this.sparkle(v.x, v.y - 30, 30);
     const at = { x: v.x, y: v.y };
@@ -1329,6 +1441,7 @@ export class GameScene extends Phaser.Scene {
       this.droughtSince = st.time;
       st.log('☀️ Trời hạn hán — ruộng nứt nẻ, lúa còi cọc, dân làng mong mưa');
       for (const v of this.villagers) if (!v.isChild) v.say('Nắng quá, mong trời đổ mưa…');
+      this.chief()?.announce('Nắng quá, mong trời đổ mưa…');
       return;
     }
     // Hạn lâu (quá 3 ngày) thì trời cũng tự mưa; còn không thì 30% có mưa rào trong ngày.
@@ -1372,19 +1485,20 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Phiên chợ: người làng bên tới, làng bán đồ gốm đổi lấy gỗ và gạo. */
+  /** Phiên chợ: người làng bên tới, làng bán đồ gốm đổi lấy gỗ, tre và gạo. */
   private openMarket() {
     const st = this.state;
     const cho = this.buildings.find((b) => b.id === 'cho' && b.built)!;
     const sold = Math.min(st.res.gom, 6);
     st.res.gom -= sold;
-    st.add('go', sold * 3);
+    st.add('go', sold * 2);
+    st.add('tre', sold * 2);
     st.add('com', sold * 2);
     this.addPhuc(4);
     this.sfx('quest', cho.px, cho.py);
     st.log(
       sold
-        ? `🏮 Phiên chợ họp: làng bán ${sold} đồ gốm, đổi được ${sold * 3} gỗ và ${sold * 2} bát cơm`
+        ? `🏮 Phiên chợ họp: làng bán ${sold} đồ gốm, đổi được ${sold * 2} gỗ, ${sold * 2} tre và ${sold * 2} bát cơm`
         : '🏮 Phiên chợ họp: người làng bên gánh hàng tới, làng mình chưa có gốm để bán',
       { x: cho.px, y: cho.py },
     );

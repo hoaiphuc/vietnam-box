@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { TILE } from '../config';
-import { BUILDINGS, type BuildingDef, type BuildingId } from '../data';
+import { BUILDINGS, HOUSE_TIERS, type BuildingDef, type BuildingId, type Cost } from '../data';
 import type { GameScene } from '../scenes/GameScene';
 
 /** built: đã xây xong · site: đang xây · planned: Thành Hoàng mới đánh dấu, chờ làng đủ gỗ. */
@@ -25,18 +25,25 @@ export class Building {
   /** Người đang làm ở đây (ruộng) — tránh hai người cùng tới. */
   reservedBy: object | null = null;
 
+  /** Nhà ở: kiểu nhà hiện tại (xem HOUSE_TIERS). */
+  tier: number;
+  /** Nhà ở đang được sửa lên kiểu này — người nhà vẫn ở trong lúc sửa. */
+  upgrading: number | null = null;
+
   constructor(
     private scene: GameScene,
     readonly id: BuildingId,
     readonly tx: number,
     readonly ty: number,
     state: BuildState,
+    tier = 0,
   ) {
     this.def = BUILDINGS[id];
     this.built = state === 'built';
     this.planned = state === 'planned';
+    this.tier = tier;
     this.sprite = scene.add
-      .image(this.px, this.py + this.def.oy, this.def.tex)
+      .image(this.px, this.py + this.def.oy, this.isHouse ? HOUSE_TIERS[tier].tex : this.def.tex)
       .setOrigin(0.5, 1)
       .setDepth(this.def.flat ? -400 : this.py);
     this.bar = scene.add.graphics().setDepth(this.def.flat ? -399 : this.py + 1);
@@ -57,6 +64,40 @@ export class Building {
     return { x: this.tx + Math.floor(this.def.w / 2), y: this.ty + this.def.h };
   }
 
+  get isHouse() {
+    return this.id === 'nha';
+  }
+  get name() {
+    return this.isHouse ? HOUSE_TIERS[this.tier].name : this.def.name;
+  }
+  get icon() {
+    return this.isHouse ? HOUSE_TIERS[this.tier].icon : this.def.icon;
+  }
+  /** Giá dựng mới theo kiểu hiện tại. */
+  get cost(): Cost {
+    return this.isHouse ? HOUSE_TIERS[this.tier].cost : this.def.cost;
+  }
+  /** Công trường: đang dựng mới hoặc đang sửa nhà. */
+  get isSite() {
+    return (!this.built && !this.planned) || this.upgrading !== null;
+  }
+  private get work() {
+    return this.upgrading !== null ? Math.round(this.def.work * 0.8) : this.def.work;
+  }
+
+  /** Đổi kiểu nhà (lúc trưởng làng bỏ vật liệu ra dựng). */
+  setTier(tier: number) {
+    this.tier = tier;
+    this.sprite.setTexture(HOUSE_TIERS[tier].tex);
+  }
+
+  /** Bắt đầu sửa nhà lên kiểu mới. */
+  startUpgrade(tier: number) {
+    this.upgrading = tier;
+    this.progress = 0;
+    this.drawBar();
+  }
+
   tiles() {
     const out: { x: number; y: number }[] = [];
     for (let y = 0; y < this.def.h; y++) for (let x = 0; x < this.def.w; x++) out.push({ x: this.tx + x, y: this.ty + y });
@@ -71,10 +112,23 @@ export class Building {
   }
 
   addProgress(amount: number) {
-    if (this.built || this.planned) return;
+    if (!this.isSite) return;
     this.progress += amount;
-    if (this.progress >= this.def.work) this.complete();
+    if (this.progress >= this.work) {
+      if (this.upgrading !== null) this.finishUpgrade();
+      else this.complete();
+    }
     this.drawBar();
+  }
+
+  private finishUpgrade() {
+    const from = this.tier;
+    this.setTier(this.upgrading!);
+    this.upgrading = null;
+    this.progress = 0;
+    this.sprite.setScale(0.9);
+    this.scene.tweens.add({ targets: this.sprite, scale: 1, duration: 600, ease: 'Back.easeOut' });
+    this.scene.onUpgraded(this, from);
   }
 
   // ------------------------------------------------------------ ruộng lúa
@@ -137,7 +191,7 @@ export class Building {
   private drawBar() {
     const g = this.bar;
     g.clear();
-    if (this.built) return;
+    if (!this.planned && !this.isSite) return;
     if (this.planned) {
       const x = this.tx * TILE;
       const y = this.ty * TILE;
@@ -158,7 +212,7 @@ export class Building {
     const x = this.px - w / 2;
     const y = this.py + this.def.oy - this.sprite.height - 10;
     g.fillStyle(0x2b1d10, 0.55).fillRoundedRect(x - 1, y - 1, w + 2, 7, 3);
-    g.fillStyle(0xffd34a, 1).fillRoundedRect(x, y, Math.max(2, (w * this.progress) / this.def.work), 5, 2);
+    g.fillStyle(0xffd34a, 1).fillRoundedRect(x, y, Math.max(2, (w * this.progress) / this.work), 5, 2);
   }
 
   private activate() {
@@ -201,7 +255,7 @@ export class Building {
           .setDepth(50002),
       );
     }
-    if (this.id === 'nha') {
+    if (this.isHouse) {
       const left = this.px - 36;
       const top = this.py + this.def.oy - 84;
       for (const wx of [20, 52]) {

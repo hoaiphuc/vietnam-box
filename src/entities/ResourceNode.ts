@@ -6,9 +6,10 @@ const REGROW: Record<NodeKind, number> = {
   tree: DAY_LENGTH * 1.5,
   bamboo: DAY_LENGTH * 0.8,
   banana: DAY_LENGTH * 0.9,
+  clay: DAY_LENGTH * 1.2,
 };
 
-/** Cây, bụi tre, bụi chuối: khai thác xong sẽ mọc lại theo thời gian. */
+/** Cây, bụi tre, bụi chuối, bãi đất sét: khai thác xong sẽ mọc lại (phù sa bồi lại) theo thời gian. */
 export class ResourceNode {
   grown = true;
   reservedBy: object | null = null;
@@ -24,12 +25,12 @@ export class ResourceNode {
     readonly ty: number,
   ) {
     this.fullTex = kind === 'tree' ? (Math.random() < 0.6 ? 'tree1' : 'tree2') : kind;
-    this.baseScale = 0.88 + Math.random() * 0.25;
+    this.baseScale = kind === 'clay' ? 1.3 : 0.88 + Math.random() * 0.25;
     this.sprite = scene.add
       .image(this.x + Phaser.Math.Between(-3, 3), this.y, this.fullTex)
       .setScale(this.baseScale)
       .setFlipX(Math.random() < 0.5)
-      .setDepth(this.y);
+      .setDepth(kind === 'clay' ? -300 : this.y);
     this.setTex(this.fullTex);
   }
 
@@ -48,8 +49,8 @@ export class ResourceNode {
   harvest() {
     this.grown = false;
     this.timer = REGROW[this.kind] * (0.85 + Math.random() * 0.3);
-    if (this.kind === 'banana') {
-      this.setTex('banana_empty');
+    if (this.kind === 'banana' || this.kind === 'clay') {
+      this.setTex(`${this.kind}_empty`);
       return;
     }
     const stump = this.kind === 'tree' ? 'stump' : 'bamboo_cut';
@@ -91,6 +92,8 @@ export class ResourceNode {
   }
 
   destroy() {
+    // Cây vừa đốn còn đang đổ mà bị dọn chỗ xây thì dừng luôn hiệu ứng đổ.
+    this.scene.tweens.killTweensOf(this.sprite);
     this.sprite.destroy();
   }
 }

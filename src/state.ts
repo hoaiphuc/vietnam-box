@@ -12,7 +12,7 @@ export interface HistoryEntry {
 }
 
 export class GameState {
-  res: Record<ResKey, number> = { go: 12, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0 };
+  res: Record<ResKey, number> = { go: 12, tre: 6, rom: 0, dat: 0, gach: 0, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0 };
   /** Những phát kiến làng đã tìm ra. */
   discovered = new Set<DiscId>();
   /** Trời hạn hán: lúa lớn chậm, dân hay cầu mưa. */
@@ -31,6 +31,9 @@ export class GameState {
     wishes: 0,
     harvested: 0,
     pottery: 0,
+    bricks: 0,
+    straw: 0,
+    upgraded: 0,
     built: { lua: 0, kho: 0, nha: 0, mieu: 0, ruong: 0, lo: 0, cho: 0, dinh: 0 } as Record<BuildingId, number>,
   };
   /** Điểm Phúc của Thành Hoàng — dùng cho quyền năng và báo mộng. */

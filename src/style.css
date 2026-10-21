@@ -148,6 +148,55 @@ h4 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Lương thực gộp một ô, rê chuột xem chi tiết. */
+.food-chip {
+  position: relative;
+  margin-left: 6px;
+  cursor: default;
+}
+
+.food-chip::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 3px;
+  bottom: 3px;
+  border-left: 1px solid var(--line);
+}
+
+.food-pop {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 170px;
+  padding: 10px 12px;
+  z-index: 30;
+}
+
+.food-chip:hover .food-pop {
+  display: block;
+}
+
+.frow {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 0;
+  font-size: 12.5px;
+}
+
+.frow.raw {
+  color: var(--ink-soft);
+}
+
+.frow:not(.raw) + .frow.raw {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
 .speed {
   display: flex;
   gap: 4px;
@@ -1049,8 +1098,17 @@ h4 {
 }
 
 .bc {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 5px;
   font-size: 11px;
   color: var(--ink-soft);
+}
+
+.bc i {
+  font-style: normal;
+  white-space: nowrap;
 }
 
 .hint {

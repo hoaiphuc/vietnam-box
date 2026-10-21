@@ -1,9 +1,15 @@
 import {
   BUILD_ORDER,
   BUILDINGS,
+  costText,
+  costWords,
+  FOOD_ORDER,
+  FOOD_RES_ORDER,
+  HOUSE_TIERS,
   JOB_NEEDS,
   JOB_ORDER,
   JOBS,
+  MATERIAL_ORDER,
   RES_NEEDS,
   RES_ORDER,
   RESOURCES,
@@ -51,6 +57,7 @@ function moodIcon(m: number) {
 export class Hud {
   private root: HTMLElement;
   private resEls = {} as Record<ResKey, HTMLElement>;
+  private foodTotal!: HTMLElement;
   private cards = new Map<Villager, CardEls>();
   private speedBtns: HTMLButtonElement[] = [];
   private buildBtns = new Map<BuildingId, HTMLButtonElement>();
@@ -87,9 +94,19 @@ export class Hud {
           <span>🙏</span><div class="phuc-bar"><i></i></div><b class="phuc-text">0</b>
         </div>
         <div class="resources">
-          ${RES_ORDER.map(
+          ${MATERIAL_ORDER.map(
             (k) => `<div class="chip" title="${RESOURCES[k].name}"><span>${RESOURCES[k].icon}</span><b data-res="${k}">0</b></div>`,
           ).join('')}
+          <div class="chip food-chip" title="Lương thực ăn được ngay — rê chuột để xem chi tiết">
+            <span>🍚</span><b class="food-total">0</b>
+            <div class="food-pop panel">
+              <h4>Lương thực</h4>
+              ${FOOD_RES_ORDER.map(
+                (k) =>
+                  `<div class="frow${RESOURCES[k].food ? '' : ' raw'}"><span>${RESOURCES[k].icon} ${RESOURCES[k].name}</span><b data-res="${k}">0</b></div>`,
+              ).join('')}
+            </div>
+          </div>
         </div>
         <div class="speed">
           <button data-speed="0" title="Tạm dừng (Space)">⏸</button>
@@ -174,6 +191,7 @@ export class Hud {
     `;
 
     for (const el of this.root.querySelectorAll<HTMLElement>('[data-res]')) this.resEls[el.dataset.res as ResKey] = el;
+    this.foodTotal = q(this.root, '.food-total');
     this.clockText = q(this.root, '.clock-text');
     this.clockIcon = q(this.root, '.clock-icon');
     this.detail = q(this.root, '.detail');
@@ -280,8 +298,8 @@ export class Hud {
       const def = BUILDINGS[id];
       const btn = document.createElement('button');
       btn.className = 'bitem';
-      btn.title = `${def.desc}\nĐánh dấu chỗ xây — trưởng làng sẽ cho xây khi đủ ${def.cost.go} gỗ.`;
-      btn.innerHTML = `<span class="bi">${def.icon}</span><span class="bn">${def.name}</span><span class="bc">${def.cost.go} 🪵</span>`;
+      btn.title = `${def.desc}\nĐánh dấu chỗ xây — trưởng làng sẽ cho xây khi đủ ${costWords(def.cost)}.`;
+      btn.innerHTML = `<span class="bi">${def.icon}</span><span class="bn">${def.name}</span><span class="bc">${costText(def.cost, '')}</span>`;
       btn.addEventListener('click', () => (scene.buildMode === id ? scene.cancelBuild() : scene.startBuild(id)));
       bb.appendChild(btn);
       this.buildBtns.set(id, btn);
@@ -476,7 +494,17 @@ export class Hud {
       const need = BUILDINGS[id].needs;
       btn.hidden = !!need && !s.has(need);
     }
+    this.renderHouseBtn();
     if (this.detailFor) this.renderDetail();
+  }
+
+  /** Nút quy hoạch nhà ở: hiện kiểu nhà tốt nhất làng đang dựng được. */
+  private renderHouseBtn() {
+    const btn = this.buildBtns.get('nha');
+    if (!btn) return;
+    const t = HOUSE_TIERS[this.scene.bestHouseTier()];
+    btn.title = `${t.desc}\nĐánh dấu chỗ xây — trưởng làng sẽ cho xây khi đủ ${costWords(t.cost)}.\nNhà cũ sẽ được sửa dần lên kiểu này khi làng dư vật liệu.`;
+    btn.innerHTML = `<span class="bi">${t.icon}</span><span class="bn">${t.name}</span><span class="bc">${costText(t.cost, '')}</span>`;
   }
 
   /** Nút thu lại / mở ra trên tiêu đề bảng; nhớ trạng thái cho lần chơi sau. */
@@ -731,6 +759,8 @@ export class Hud {
       const val = String(s.res[k]);
       if (this.resEls[k].textContent !== val) this.resEls[k].textContent = val;
     }
+    const food = String(FOOD_ORDER.reduce((n, k) => n + s.res[k], 0));
+    if (this.foodTotal.textContent !== food) this.foodTotal.textContent = food;
     const h = s.hour;
     const hh = Math.floor(h);
     const mm = Math.floor(((h - hh) * 60) / 10) * 10;

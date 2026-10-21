@@ -229,6 +229,23 @@ function drawBanana(c: Ctx, fruit: boolean) {
 
 // ---------------------------------------------------------------- thú rừng
 
+/** Bãi đất sét ven sông; `dug`: đã đào, còn vũng nước chờ phù sa bồi lại. */
+function drawClay(c: Ctx, dug: boolean) {
+  ell(c, 18, 15, 17, 7.5, '#8a6a4c');
+  ell(c, 18, 14, 15.5, 6.5, dug ? '#7a5a3e' : '#a9805c');
+  if (dug) {
+    ell(c, 18, 15, 10, 4, '#5a4230');
+    ell(c, 18, 15.5, 8, 3, '#6f8fa0');
+    ell(c, 15, 14.5, 3, 0.8, 'rgba(255,255,255,0.45)');
+    return;
+  }
+  ell(c, 13, 12, 6, 3.2, '#b98e66');
+  ell(c, 23, 13, 5.5, 3, '#b48a63');
+  ell(c, 12, 11, 2.5, 1.1, 'rgba(255,240,215,0.45)');
+  ell(c, 22.5, 12, 2.2, 1, 'rgba(255,240,215,0.4)');
+  ell(c, 18, 17, 3.5, 1.4, '#6f8fa0');
+}
+
 function drawChicken(c: Ctx) {
   ell(c, 12, 21, 8, 2, 'rgba(0,0,0,0.2)');
   line(c, 11, 15, 10, 21, '#d9a23a', 1.3);
@@ -301,6 +318,154 @@ function drawHouse(c: Ctx) {
   for (let x = 0; x < 72; x += 4) poly(c, [x, 46, x + 4, 46, x + 2, 50], '#a8823a');
   rrect(c, 12, 9, 48, 6, 3, '#8f6d2c');
   for (let x = 16; x < 58; x += 8) line(c, x, 9, x + 2, 15, '#6f5220', 1);
+}
+
+/** Thời hái lượm: lều khung tre, vách phên, mái lợp lá. */
+function drawHut(c: Ctx) {
+  ell(c, 36, 80, 32, 4.5, 'rgba(0,0,0,0.18)');
+  // vách phên tre
+  c.fillStyle = '#d9c38a';
+  c.fillRect(11, 50, 50, 30);
+  for (let y = 52; y < 80; y += 4) line(c, 11, y, 61, y, 'rgba(150,120,60,0.45)', 1);
+  for (let x = 14; x < 61; x += 5) line(c, x, 50, x, 80, 'rgba(150,120,60,0.25)', 1);
+  // cột tre
+  for (const x of [11, 36, 61]) {
+    line(c, x, 46, x, 80, '#7aa83e', 3);
+    line(c, x + 0.8, 46, x + 0.8, 80, '#9cc456', 1);
+  }
+  // cửa: tấm phên vén lên
+  rrect(c, 29, 61, 14, 19, 1, '#4a3424');
+  poly(c, [26, 57, 46, 57, 44, 62, 28, 62], '#c9ad6e');
+  // ô cửa sổ
+  for (const wx of [15, 47]) {
+    c.fillStyle = '#3b2a1e';
+    c.fillRect(wx, 56, 10, 9);
+    for (let k = 1; k < 3; k++) line(c, wx + k * 3.3, 56, wx + k * 3.3, 65, '#7aa83e', 1.4);
+  }
+  // mái lá: từng lớp lá chuối, lá cọ xếp chồng
+  poly(c, [2, 52, 70, 52, 47, 18, 25, 18], '#6f8a3a');
+  poly(c, [36, 18, 47, 18, 70, 52, 36, 52], '#5d7a30');
+  const r = mulberry32(17);
+  for (let row = 0; row < 6; row++) {
+    const y = 22 + row * 5.6;
+    const t = (y - 18) / 34;
+    const x0 = 25 - t * 23;
+    const x1 = 47 + t * 23;
+    for (let x = x0 + 3; x < x1 - 2; x += 5) {
+      const dry = r() < 0.18;
+      const col = dry ? '#a8894a' : x > 36 ? '#4f6c28' : r() < 0.5 ? '#7d9a42' : '#68863a';
+      ell(c, x, y + r() * 2, 4.5, 1.6, col, (x < 36 ? 1 : -1) * (0.5 + r() * 0.3));
+    }
+  }
+  for (let x = 3; x < 70; x += 4) poly(c, [x, 51, x + 4, 51, x + 2, 55], r() < 0.3 ? '#8a7a40' : '#56742c');
+  rrect(c, 23, 14, 26, 6, 3, '#6a5a2c');
+  for (const x of [28, 36, 44]) line(c, x, 14, x, 20, '#4a3a1a', 1.2);
+}
+
+/** Thời làng nghề: khung gỗ, vách ván, mái ngói đỏ. */
+function drawTimberHouse(c: Ctx) {
+  ell(c, 36, 80, 35, 5, 'rgba(0,0,0,0.18)');
+  // nền đá
+  c.fillStyle = '#9d9a8e';
+  c.fillRect(6, 75, 60, 6);
+  c.fillStyle = '#b8b5a8';
+  c.fillRect(6, 75, 60, 2);
+  // vách ván gỗ
+  c.fillStyle = '#9a6a40';
+  c.fillRect(9, 42, 54, 33);
+  for (let x = 12; x < 63; x += 4.5) line(c, x, 42, x, 75, 'rgba(70,40,20,0.35)', 1);
+  // cột, xà
+  c.fillStyle = '#5a3a22';
+  for (const x of [8, 34, 61]) c.fillRect(x, 42, 3, 33);
+  c.fillRect(8, 42, 56, 3);
+  // cửa ván hai cánh
+  rrect(c, 28, 54, 16, 21, 1, '#6e4628');
+  line(c, 36, 54, 36, 75, '#3b2414', 1.4);
+  circle(c, 34, 65, 0.9, '#e2b84a');
+  circle(c, 38, 65, 0.9, '#e2b84a');
+  // cửa sổ song gỗ
+  for (const wx of [14, 46]) {
+    c.fillStyle = '#3b2a1e';
+    c.fillRect(wx, 55, 12, 11);
+    for (let k = 1; k < 4; k++) line(c, wx + k * 3, 55, wx + k * 3, 66, '#c9a06a', 1.4);
+    c.fillStyle = '#5a3a22';
+    c.fillRect(wx - 1, 54, 14, 2);
+    c.fillRect(wx - 1, 66, 14, 2);
+  }
+  // mái ngói đỏ
+  poly(c, [0, 46, 72, 46, 60, 15, 12, 15], '#b5523a');
+  poly(c, [36, 15, 60, 15, 72, 46, 36, 46], '#9c4430');
+  for (let row = 0; row < 6; row++) {
+    const y = 19 + row * 5;
+    const t = (y - 15) / 31;
+    const x0 = 12 - t * 12;
+    const x1 = 60 + t * 12;
+    line(c, x0, y + 3, x1, y + 3, 'rgba(90,30,20,0.55)', 1);
+    for (let x = x0 + 2; x < x1 - 1; x += 4) ell(c, x, y + 3, 2, 1.2, x > 36 ? '#8c3b2a' : '#c4634a');
+  }
+  for (let x = 0; x < 72; x += 4) ell(c, x + 2, 46, 2.1, 1.4, '#8c3b2a');
+  // bờ nóc, hai đầu cong lên
+  rrect(c, 10, 11, 52, 5, 2, '#7a3020');
+  poly(c, [10, 11, 4, 5, 8, 4, 14, 11], '#7a3020');
+  poly(c, [62, 11, 68, 5, 64, 4, 58, 11], '#7a3020');
+}
+
+/** Thời chợ phiên: nhà gạch ba gian, mái ngói, đầu đao cong vút. */
+function drawBrickHouse(c: Ctx) {
+  ell(c, 36, 80, 36, 5, 'rgba(0,0,0,0.2)');
+  // thềm đá, bậc tam cấp
+  c.fillStyle = '#9d9a8e';
+  c.fillRect(3, 74, 66, 7);
+  c.fillStyle = '#b8b5a8';
+  c.fillRect(3, 74, 66, 2);
+  c.fillStyle = '#8a877c';
+  c.fillRect(27, 79, 18, 3);
+  // tường gạch
+  c.fillStyle = '#b8553a';
+  c.fillRect(7, 40, 58, 34);
+  for (let y = 42, i = 0; y < 74; y += 4, i++) {
+    line(c, 7, y, 65, y, 'rgba(240,220,200,0.35)', 0.8);
+    for (let x = 7 + (i % 2) * 4; x < 65; x += 8) line(c, x, y, x, y + 4, 'rgba(240,220,200,0.3)', 0.8);
+  }
+  // cột ba gian
+  c.fillStyle = '#6e3a22';
+  for (const x of [6, 25, 44, 63]) c.fillRect(x, 40, 3, 34);
+  c.fillRect(6, 40, 60, 3);
+  // gian giữa: cửa bức bàn
+  rrect(c, 28, 50, 16, 24, 1, '#7a4a2a');
+  for (const x of [32, 36, 40]) line(c, x, 50, x, 74, '#4a2c18', 1);
+  c.fillStyle = '#c0392b';
+  c.fillRect(27, 47, 18, 3);
+  // hai gian bên: cửa sổ con tiện
+  for (const wx of [14, 46]) {
+    c.fillStyle = '#3b2a1e';
+    c.fillRect(wx, 55, 12, 11);
+    for (let k = 1; k < 4; k++) line(c, wx + k * 3, 55, wx + k * 3, 66, '#e2b84a', 1.4);
+    c.fillStyle = '#6e3a22';
+    c.fillRect(wx - 1, 54, 14, 2);
+    c.fillRect(wx - 1, 66, 14, 2);
+  }
+  // mái ngói lớn
+  poly(c, [-2, 44, 74, 44, 62, 13, 10, 13], '#a84a34');
+  poly(c, [36, 13, 62, 13, 74, 44, 36, 44], '#8c3b2a');
+  for (let row = 0; row < 7; row++) {
+    const y = 16 + row * 4.4;
+    const t = (y - 13) / 31;
+    const x0 = 10 - t * 12;
+    const x1 = 62 + t * 12;
+    line(c, x0, y + 2.6, x1, y + 2.6, 'rgba(80,25,15,0.55)', 1);
+    for (let x = x0 + 2; x < x1 - 1; x += 4) ell(c, x, y + 2.6, 2, 1.1, x > 36 ? '#7a3020' : '#b85a40');
+  }
+  for (let x = -2; x < 74; x += 4) ell(c, x + 2, 44, 2.1, 1.4, '#7a3020');
+  // đầu đao hai góc mái
+  poly(c, [-2, 44, -6, 34, -2, 36, 6, 44], '#7a3020');
+  poly(c, [74, 44, 78, 34, 74, 36, 66, 44], '#7a3020');
+  // bờ nóc có trang trí
+  rrect(c, 8, 8, 56, 6, 2, '#6a2a1a');
+  poly(c, [8, 8, 0, 0, 5, 0, 13, 8], '#6a2a1a');
+  poly(c, [64, 8, 72, 0, 67, 0, 59, 8], '#6a2a1a');
+  circle(c, 36, 7, 3.5, '#e2b84a');
+  circle(c, 36, 7, 1.6, '#c0392b');
 }
 
 function drawStorehouse(c: Ctx) {
@@ -608,11 +773,16 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'bamboo_cut', 44, 22, (c) => drawBamboo(c, true));
   make(scene, 'banana', 48, 62, (c) => drawBanana(c, true));
   make(scene, 'banana_empty', 48, 62, (c) => drawBanana(c, false));
+  make(scene, 'clay', 36, 24, (c) => drawClay(c, false));
+  make(scene, 'clay_empty', 36, 24, (c) => drawClay(c, true));
 
   make(scene, 'ga', 25, 23, drawChicken);
   make(scene, 'heo', 37, 27, drawBoar);
 
-  make(scene, 'nha', 72, 84, drawHouse);
+  make(scene, 'nha0', 72, 84, drawHut);
+  make(scene, 'nha1', 72, 84, drawHouse);
+  make(scene, 'nha2', 72, 84, drawTimberHouse);
+  make(scene, 'nha3', 72, 84, drawBrickHouse);
   make(scene, 'kho', 72, 78, drawStorehouse);
   make(scene, 'lua', 36, 30, drawCampfire);
   make(scene, 'mieu', 40, 57, drawShrine);

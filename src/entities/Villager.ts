@@ -6,6 +6,7 @@ import { canDo, CHILD_AFF, ELDER_AFF, stageOf, type Gender, type Palette, type S
 import { WISHES, type WishType } from '../powers';
 import type { FishingSpot, GameScene } from '../scenes/GameScene';
 import { TRAITS, type TraitId } from '../traits';
+import type { NodeKind } from '../world/mapgen';
 import { personTexture } from '../world/textures';
 import type { Building } from './Building';
 
@@ -55,12 +56,12 @@ export const MAX_LEVEL = 10;
 export const xpNeed = (lv: number) => 12 + lv * 10;
 
 const NEED_LINES: Record<JobId, string> = {
-  chat: 'Nhà thiếu gỗ quá, phải đi đốn cây',
+  chat: 'Làng thiếu gỗ với tre quá, phải đi chặt',
   san: 'Cả nhà cần thịt, vào rừng săn thôi',
   ca: 'Kho sắp hết đồ ăn, ra sông kiếm con cá',
   hai: 'Sắp hết cái ăn rồi, đi hái chuối',
   cay: 'Lúa chín vàng đồng rồi, ra gặt kẻo rụng',
-  nung: 'Làng cần thêm chum vại, nhóm lò nung gốm thôi',
+  nung: 'Làng cần thêm gạch ngói, chum vại — nhóm lò thôi',
   nau: 'Thịt cá sống còn nhiều, đem nướng kẻo hỏng',
   xay: 'Phải dựng cho xong công trình đã',
   nghi: 'Mệt quá, phải nghỉ một lát',
@@ -79,17 +80,22 @@ const LIKE_LINES: Record<JobId, string> = {
   le: 'Ra miếu thắp nén hương cho lòng thanh thản',
 };
 const CASUAL_LINES: Record<JobId, string> = {
-  chat: 'Đi chặt thêm ít gỗ để dành',
+  chat: 'Đi chặt thêm ít gỗ, ít tre để dành',
   san: 'Thử vào rừng xem có con gì không',
   ca: 'Ra sông thả câu chơi',
   hai: 'Đi xem chuối chín chưa',
   cay: 'Ra thăm đồng một chút',
-  nung: 'Nung thêm mẻ gốm',
+  nung: 'Nung thêm một mẻ ở lò',
   nau: 'Nướng thêm ít đồ ăn',
   xay: 'Phụ một tay xây dựng',
   nghi: 'Hôm nay thong thả một chút',
   le: 'Ghé miếu thắp nén hương',
 };
+/** Mỗi người cách ít nhất chừng này (ms thực) mới nói thành tiếng một suy nghĩ thường ngày. */
+const CHATTER_GAP = 20000;
+/** Số bong bóng suy nghĩ thường ngày tối đa trên màn hình cùng lúc. */
+const MAX_CHATTER = 2;
+
 const PRAY_LINES = ['Cầu cho cả nhà bình an', 'Tạ ơn ông Thành Hoàng phù hộ', 'Cầu cho mưa thuận gió hoà'];
 const RAIN_LINES = ['Mưa rồi! Mát quá', 'Trời mưa, cây cối chắc tốt lắm', 'Ông Thành Hoàng cho mưa kìa!', 'Mưa rào đầu mùa đây'];
 const CHAT_LINES = [
@@ -180,6 +186,8 @@ export class Villager {
   private bubbleBg: Phaser.GameObjects.Graphics;
   private bubbleText: Phaser.GameObjects.Text;
   private bubbleUntil = 0;
+  /** Lần cuối nói thành tiếng một suy nghĩ thường ngày (ms thực). */
+  private lastChatter = -Infinity;
 
   constructor(
     private scene: GameScene,
@@ -348,8 +356,35 @@ export class Villager {
   // ------------------------------------------------------------ suy nghĩ, ký ức, nhật ký
 
   /** Hiện bong bóng suy nghĩ trên đầu. */
-  say(text: string, ms = 4500) {
+  /**
+   * Suy nghĩ thường ngày: luôn hiện trên thẻ dân làng. Thỉnh thoảng mới nói thành tiếng — mỗi người cách nhau
+   * một lúc và cả làng chỉ vài bong bóng cùng lúc — để màn hình không ngập lời nói. Người đang được chọn thì luôn nói.
+   */
+  say(text: string, ms = 3500) {
     this.thought = text;
+    const now = this.scene.time.now;
+    if (this.scene.selected === this) this.showBubble(text, ms);
+    else if (now - this.lastChatter > CHATTER_GAP && this.scene.chatterCount() < MAX_CHATTER) {
+      this.lastChatter = now;
+      this.showBubble(text, ms);
+    }
+  }
+
+  /** Đang có bong bóng suy nghĩ thường ngày (không phải lời quan trọng) trên đầu. */
+  get chattering() {
+    return this.bubble.visible && this.bubbleUntil - this.scene.time.now > 0 && !this.loud;
+  }
+
+  /** Lời đáng chú ý (cầu khấn, phát kiến, cưới hỏi, đáp lại Thành Hoàng…): luôn bật bong bóng. */
+  announce(text: string, ms = 5500) {
+    this.thought = text;
+    this.showBubble(text, ms, true);
+  }
+
+  private loud = false;
+
+  private showBubble(text: string, ms: number, loud = false) {
+    this.loud = loud;
     this.bubbleText.setText(text);
     const w = this.bubbleText.width + 14;
     const h = this.bubbleText.height + 8;
@@ -404,7 +439,7 @@ export class Villager {
     if (Math.random() < p) {
       this.intent = { job, until: time + DAY_LENGTH * 0.8 };
       this.addMood(3);
-      this.say(this.asleep ? `💭 Mơ thấy ông Thành Hoàng bảo đi ${verb}...` : `💭 Tự nhiên thấy muốn đi ${verb} quá!`);
+      this.announce(this.asleep ? `💭 Mơ thấy ông Thành Hoàng bảo đi ${verb}...` : `💭 Tự nhiên thấy muốn đi ${verb} quá!`);
       this.note(`💭 Được báo mộng, quyết định đi ${verb}`);
       this.mode = '';
       this.interrupt();
@@ -418,7 +453,7 @@ export class Villager {
           : this.has('luoi')
             ? 'Để mai tính...'
             : 'Ừm... chắc là không đâu';
-    this.say(`💭 ${line}`);
+    this.announce(`💭 ${line}`);
     this.note(`💭 Được báo mộng đi ${verb} nhưng không nghe: "${line}"`);
     return 'refused';
   }
@@ -426,7 +461,7 @@ export class Villager {
   clearIntent() {
     if (!this.intent) return;
     this.intent = null;
-    this.say('Thôi, tự mình quyết vậy');
+    this.announce('Thôi, tự mình quyết vậy');
     this.mode = '';
   }
 
@@ -436,7 +471,7 @@ export class Villager {
     const text = this.wish.text;
     this.wish = null;
     this.addMood(15);
-    this.say('Ông Thành Hoàng linh thiêng quá! 🙏', 5000);
+    this.announce('Ông Thành Hoàng linh thiêng quá! 🙏', 5000);
     this.remember('linh_ung', '✨', `Lời cầu “${text}” đã ứng nghiệm`, 2, { le: 0.3 });
     return true;
   }
@@ -447,7 +482,7 @@ export class Villager {
     this.energy = Math.min(100, this.energy + 35);
     this.hunger = Math.min(100, this.hunger + 25);
     this.memories = this.memories.filter((m) => m.id !== 'heo_huc');
-    this.say('Tự nhiên thấy trong người khoẻ khoắn lạ thường! ✨', 5000);
+    this.announce('Tự nhiên thấy trong người khoẻ khoắn lạ thường! ✨', 5000);
     this.remember('phu_ho', '✨', 'Được Thành Hoàng phù hộ, khoẻ khoắn hẳn', 1);
   }
 
@@ -867,10 +902,12 @@ export class Villager {
     this.idleTime = 0;
     this.status = home ? 'Đang ngủ trong nhà 💤' : 'Ngủ ngoài trời 💤';
     let z = Math.random() * 2;
+    // Nhà càng khang trang ngủ càng ngon, hồi sức càng nhanh.
+    const comfort = this.inside && home?.isHouse ? 1 + home.tier * 0.1 : 1;
     try {
       for (;;) {
         const dt: number = yield;
-        this.energy = Math.min(100, this.energy + dt * SLEEP_RATE);
+        this.energy = Math.min(100, this.energy + dt * SLEEP_RATE * comfort);
         z -= dt;
         if (z <= 0) {
           z = 2.5;
@@ -997,7 +1034,7 @@ export class Villager {
         const w = s.wishFor(this);
         const text = WISHES[w].text;
         this.wish = { type: w, text, until: s.state.time + DAY_LENGTH };
-        this.say(`🙏 ${text}`, 5500);
+        this.announce(`🙏 ${text}`, 5500);
         this.note(`🙏 Cầu khấn: ${text}`);
         s.state.log(`🙏 ${this.name} cầu khấn: “${text}”`, { x: this.x, y: this.y });
         return;
@@ -1009,7 +1046,9 @@ export class Villager {
   // ------------------------------------------------------------ nghề nghiệp
 
   private *chop(): Beh {
-    const node = this.scene.findNode(['tree', 'bamboo'], this.x, this.y);
+    const r = this.scene.state.res;
+    const prefer: NodeKind = r.tre * 1.5 < r.go ? 'bamboo' : 'tree';
+    const node = this.scene.findNode([prefer], this.x, this.y) ?? this.scene.findNode(['tree', 'bamboo'], this.x, this.y);
     if (!node) return yield* this.idle('Hết cây để chặt, chờ cây mọc lại');
     node.reservedBy = this;
     try {
@@ -1024,7 +1063,7 @@ export class Villager {
       this.scene.recordWork(node.x, node.y);
       this.scene.sfx(node.kind === 'tree' ? 'treeFall' : 'bambooFall', node.x, node.y);
       const bonus = Math.floor(this.skills.chat.level / 3);
-      this.carry = { res: 'go', amount: (node.kind === 'tree' ? 4 : 3) + bonus };
+      this.carry = node.kind === 'tree' ? { res: 'go', amount: 4 + bonus } : { res: 'tre', amount: 4 + bonus };
       this.gainXp('chat', 4);
     } finally {
       if (node.reservedBy === this) node.reservedBy = null;
@@ -1190,7 +1229,7 @@ export class Villager {
     this.addMood(-15);
     this.scene.sfx('grunt', this.x, this.y);
     this.scene.floatText(this.x, this.y - 50, '💥 Á!', '#ffb0a0');
-    this.say('Ối! Bị heo rừng húc đau quá 😣');
+    this.announce('Ối! Bị heo rừng húc đau quá 😣');
     this.remember('heo_huc', '🐗', 'Bị heo rừng húc, giờ sợ đi săn', 2, { san: -0.45 });
     this.scene.state.log(`🐗 ${this.name} bị heo rừng húc, chắc sẽ ngại đi săn mấy hôm`, { x: this.x, y: this.y });
     const d = Math.hypot(this.x - fromX, this.y - fromY) || 1;
@@ -1227,10 +1266,14 @@ export class Villager {
         f.harvest();
         s.state.stats.harvested++;
         this.carry = { res: 'thoc', amount: 5 + Math.floor(this.skills.cay.level / 2) };
+        const straw = 3 + Math.floor(this.skills.cay.level / 3);
+        s.state.add('rom', straw);
+        s.state.stats.straw += straw;
+        s.floatText(this.x, this.y - 48, `+${straw} ${RESOURCES.rom.icon}`);
         this.gainXp('cay', 5);
         this.addMood(3);
         if (s.state.stats.harvested === 1) {
-          this.say('Mùa gặt đầu tiên! Hạt thóc chắc mẩy ghê 🌾', 5000);
+          this.announce('Mùa gặt đầu tiên! Hạt thóc chắc mẩy ghê 🌾', 5000);
           s.state.log(`🌾 ${this.name} gặt mẻ lúa đầu tiên của làng`, { x: f.px, y: f.py });
         }
       } else {
@@ -1246,32 +1289,70 @@ export class Villager {
 
   private *pottery(): Beh {
     const s = this.scene;
+    const st = s.state;
     const kiln = s.nearestBuilt('lo', this.x, this.y);
     if (!kiln) return yield* this.idle('Cần có Lò gốm');
-    if (s.state.res.go < 1) return yield* this.idle('Hết củi để nung gốm');
+    const bricks = s.wantsBricks();
+    const clay = bricks ? 2 : 1;
+    if (st.res.dat < s.clayNeed()) return yield* this.digClay();
+    if (st.res.go < 1) return yield* this.idle('Hết củi để nung');
     this.status = 'Ra lò gốm';
     const stand = s.standNear(kiln.tx, kiln.ty, this.x, this.y);
     if (!stand || !(yield* this.walkTo(stand.x, stand.y))) return;
     this.face(kiln.px);
     try {
-      this.status = 'Nặn đất sét 🏺';
+      this.status = bricks ? 'Đóng khuôn gạch, ngói 🧱' : 'Nặn đất sét 🏺';
       this.holding = '🤲';
       if (!(yield* this.workFor(5 / this.eff('nung'), 'rustle', 0.9))) return;
-      if (s.state.res.go < 1) return;
-      s.state.res.go--;
-      this.status = 'Nung gốm trong lò 🔥';
+      if (st.res.dat < clay || st.res.go < 1) return;
+      st.res.dat -= clay;
+      st.res.go--;
+      this.status = bricks ? 'Nung gạch ngói trong lò 🔥' : 'Nung gốm trong lò 🔥';
       this.holding = '🔥';
       if (!(yield* this.workFor(4 / this.eff('nung'), 'sizzle', 0.7))) return;
-      const n = 1 + (Math.random() < this.skills.nung.level * 0.08 ? 1 : 0);
-      s.state.stats.pottery += n;
-      this.carry = { res: 'gom', amount: n };
       this.gainXp('nung', 4);
-      if (s.state.stats.pottery === n) {
-        this.say('Mẻ gốm đầu tiên ra lò, đẹp quá! 🏺', 5000);
-        s.state.log(`🏺 ${this.name} nung được mẻ gốm đầu tiên của làng`, { x: kiln.px, y: kiln.py });
+      if (bricks) {
+        const n = 3 + Math.floor(this.skills.nung.level / 3);
+        st.stats.bricks += n;
+        this.carry = { res: 'gach', amount: n };
+        if (st.stats.bricks === n) {
+          this.announce('Mẻ gạch ngói đầu tiên, đỏ au đẹp quá! 🧱', 5000);
+          st.log(`🧱 ${this.name} nung được mẻ gạch ngói đầu tiên của làng`, { x: kiln.px, y: kiln.py });
+        }
+        return;
+      }
+      const n = 1 + (Math.random() < this.skills.nung.level * 0.08 ? 1 : 0);
+      st.stats.pottery += n;
+      this.carry = { res: 'gom', amount: n };
+      if (st.stats.pottery === n) {
+        this.announce('Mẻ gốm đầu tiên ra lò, đẹp quá! 🏺', 5000);
+        st.log(`🏺 ${this.name} nung được mẻ gốm đầu tiên của làng`, { x: kiln.px, y: kiln.py });
       }
     } finally {
       this.holding = null;
+    }
+  }
+
+  /** Ra bãi ven sông đào đất sét về cho lò. */
+  private *digClay(): Beh {
+    const node = this.scene.findNode(['clay'], this.x, this.y);
+    if (!node) return yield* this.idle('Bãi đất sét chưa bồi lại, đợi chút');
+    node.reservedBy = this;
+    try {
+      this.status = 'Ra bờ sông đào đất sét';
+      const stand = this.scene.standNear(node.tx, node.ty, this.x, this.y);
+      if (!stand || !(yield* this.walkTo(stand.x, stand.y))) return;
+      this.face(node.x);
+      this.status = 'Đang đào đất sét 🟤';
+      this.holding = '🪏';
+      if (!(yield* this.workFor(4 / this.eff('nung'), 'rustle', 0.8))) return;
+      node.harvest();
+      this.scene.recordWork(node.x, node.y);
+      this.carry = { res: 'dat', amount: 4 + Math.floor(this.skills.nung.level / 3) };
+      this.gainXp('nung', 2);
+    } finally {
+      this.holding = null;
+      if (node.reservedBy === this) node.reservedBy = null;
     }
   }
 
@@ -1319,16 +1400,17 @@ export class Villager {
   private *build(): Beh {
     const site = this.scene.nearestSite(this.x, this.y);
     if (!site) return yield* this.idle('Chưa có công trình nào cần xây');
-    this.status = `Đi xây ${site.def.name.toLowerCase()}`;
+    const what = site.upgrading !== null ? `sửa ${site.name.toLowerCase()}` : `xây ${site.name.toLowerCase()}`;
+    this.status = `Đi ${what}`;
     const stand = site.def.w === 1 ? this.scene.standNear(site.tx, site.ty, this.x, this.y) : site.entrance;
     if (!stand || !(yield* this.walkTo(stand.x, stand.y))) return;
     this.face(site.px);
-    this.status = `Đang xây ${site.def.name.toLowerCase()} 🔨`;
+    this.status = `Đang ${what} 🔨`;
     this.holding = '🔨';
     let acc = 0;
     let hammer = 0;
     try {
-      while (!site.built) {
+      while (site.isSite) {
         const dt: number = yield;
         this.working = true;
         site.addProgress(dt * this.eff('xay'));

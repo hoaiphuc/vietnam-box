@@ -12,7 +12,7 @@ export const T = {
   FORD: 7,
 } as const;
 
-export type NodeKind = 'tree' | 'bamboo' | 'banana';
+export type NodeKind = 'tree' | 'bamboo' | 'banana' | 'clay';
 
 export interface MapData {
   tiles: Uint8Array;
@@ -97,11 +97,23 @@ export function generateMap(seed: number): MapData {
     used[i] = 1;
     nodes.push({ kind, x, y });
   };
+
+  // Bãi đất sét: vài cụm sát bờ sông phía làng, phù sa bồi lại sau mỗi lần đào.
+  const clayRows = [0.3, 0.45, 0.6, 0.78].map((f) => Math.floor(H * f + (rand() - 0.5) * 4));
+  for (const cy of clayRows) {
+    for (let k = 0; k < 6; k++) {
+      const y = cy + Math.floor(rand() * 3) - 1;
+      if (y < 1 || y >= H - 1) continue;
+      const x = Math.floor(cx[y] - hw[y] - 1.5 - rand() * 2.5);
+      const t = tiles[y * W + x];
+      if (t === T.GRASS || t === T.GRASS2 || t === T.FLOWER || t === T.SAND) put('clay', x, y);
+    }
+  }
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const t = tiles[i];
-      if (t === T.WATER || t === T.FORD || t === T.SAND || t === T.DIRT) continue;
+      if (t === T.WATER || t === T.FORD || t === T.SAND || t === T.DIRT || used[i]) continue;
       const dv = Math.hypot(x - village.x, (y - village.y) * 1.15);
       if (forest[i]) {
         if (rand() < 0.42) put(rand() < 0.86 ? 'tree' : 'bamboo', x, y);
