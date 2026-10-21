@@ -4,7 +4,7 @@ import { AudioEngine, loadAudioSettings, saveAudioSettings } from '../audio/Audi
 import { Music } from '../audio/Music';
 import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
-import { BUILDINGS, FOOD_ORDER, JOBS, RESOURCES, type BuildingId, type JobId, type ResKey } from '../data';
+import { BUILDINGS, FOOD_ORDER, JOBS, RESOURCES, SKILL_JOBS, type BuildingId, type JobId, type ResKey } from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
 import { Building, type BuildState } from '../entities/Building';
 import { ResourceNode } from '../entities/ResourceNode';
@@ -12,6 +12,7 @@ import { Villager, type VillagerDef } from '../entities/Villager';
 import { DREAM_COST, POWERS, WISHES, type PowerId, type WishType } from '../powers';
 import { GameState } from '../state';
 import { rollTraits, type TraitId } from '../traits';
+import { MARRY_AGE, palette, randomName, randomPalette, type Gender, type Palette, type Stage } from '../life';
 import { Hud } from '../ui/Hud';
 import { generateMap, type NodeKind } from '../world/mapgen';
 import { findPath, type Pt } from '../world/pathfinding';
@@ -26,37 +27,14 @@ export interface FishingSpot {
   reservedBy: Villager | null;
 }
 
-/** Mỗi người có một nét tính cách cố định, thêm một nét ngẫu nhiên mỗi ván. */
-const FAMILY: (Omit<VillagerDef, 'traits'> & { traits: TraitId[] })[] = [
-  {
-    id: 'bo',
-    name: 'Bố Tám',
-    role: 'Trụ cột gia đình',
-    avatar: '👨🏻',
-    tex: 'v_bo',
-    skills: { chat: 2, san: 1, xay: 1 },
-    traits: ['khoeManh'],
-  },
-  {
-    id: 'me',
-    name: 'Mẹ Lan',
-    role: 'Người nội trợ đảm đang',
-    avatar: '👩🏻',
-    tex: 'v_me',
-    skills: { nau: 2, hai: 1, ca: 1 },
-    traits: ['kheoTay'],
-  },
-  {
-    id: 'con',
-    name: 'Bé Na',
-    role: 'Cô bé ham học — học nghề nhanh x1.5',
-    avatar: '👧🏻',
-    tex: 'v_con',
-    skills: { hai: 1 },
-    traits: ['toMo'],
-    child: true,
-  },
+/** Gia đình lập làng. Mỗi người có một nét tính cách cố định, thêm một nét ngẫu nhiên mỗi ván. */
+const FOUNDERS: { given: string; gender: Gender; age: number; palette: Palette; skills: VillagerDef['skills']; traits: TraitId[] }[] = [
+  { given: 'Tám', gender: 'nam', age: 34, palette: palette('#7a5236', '#33302c', true), skills: { chat: 2, san: 1, xay: 1 }, traits: ['khoeManh'] },
+  { given: 'Lan', gender: 'nu', age: 31, palette: palette('#9c72b5', '#24211f', true), skills: { nau: 2, hai: 1, ca: 1 }, traits: ['kheoTay'] },
+  { given: 'Na', gender: 'nu', age: 8, palette: palette('#f3f1ea', '#3b6fb6', true), skills: { hai: 1 }, traits: ['toMo'] },
 ];
+
+const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
 const darknessAt = (h: number) => {
   if (h >= 20 || h < 4.5) return MAX_DARK;
@@ -139,11 +117,31 @@ export class GameScene extends Phaser.Scene {
 
     const v = data.village;
     this.homeTile = { x: v.x, y: v.y + 1 };
-    this.placeBuilding('nha', v.x - 1, v.y - 2, 'built');
-    FAMILY.forEach((d, i) => {
-      const def: VillagerDef = { ...d, traits: rollTraits(d.traits, 1) };
-      this.villagers.push(new Villager(this, def, v.x - 1 + i, v.y + 1));
-    });
+    const house = this.placeBuilding('nha', v.x - 1, v.y - 2, 'built');
+    const [bo, me, na] = FOUNDERS.map((f, i) =>
+      this.addVillager(
+        {
+          id: this.newId(),
+          given: f.given,
+          gender: f.gender,
+          birthTime: -f.age * DAY_LENGTH,
+          palette: f.palette,
+          skills: f.skills,
+          traits: rollTraits(f.traits, 1),
+        },
+        v.x - 1 + i,
+        v.y + 1,
+      ),
+    );
+    bo.spouse = me;
+    me.spouse = bo;
+    na.parents = [bo, me];
+    bo.children.push(na);
+    me.children.push(na);
+    for (const p of [bo, me, na]) p.home = house;
+    this.addBond(bo, me, 85);
+    this.addBond(bo, na, 75);
+    this.addBond(me, na, 75);
     for (let i = 0; i < 7; i++) this.spawnAnimal(i < 4 ? 'ga' : 'heo');
 
     this.darkness = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x0c1a48).setOrigin(0).setAlpha(0).setDepth(50000);
@@ -463,6 +461,7 @@ export class GameScene extends Phaser.Scene {
     this.state.log(`${b.def.icon} Đã xây xong ${b.def.name}!`, { x: b.px, y: b.py });
     this.sfx('built');
     this.floatText(b.px, b.py - b.sprite.height, `${b.def.name} hoàn thành!`, '#ffe27a');
+    if (b.def.home) this.assignHome(b);
   }
 
   private removeBuilding(b: Building) {
@@ -795,15 +794,15 @@ export class GameScene extends Phaser.Scene {
 
   private chiefV: Villager | null = null;
 
-  /** Uy tín: tổng tay nghề của người lớn. */
+  /** Uy tín: tổng tay nghề, cộng thêm tuổi tác. */
   private respect(v: Villager) {
-    return Object.values(v.skills).reduce((a, k) => a + k.level, 0);
+    return Object.values(v.skills).reduce((a, k) => a + k.level, 0) + v.years / 10;
   }
 
   /** Trưởng làng hiện tại — chỉ đổi khi có người uy tín hơn hẳn (xem `electChief`). */
   chief(): Villager | null {
     if (!this.chiefV) {
-      const adults = this.villagers.filter((v) => !v.def.child);
+      const adults = this.villagers.filter((v) => !v.isChild);
       this.chiefV = adults.sort((a, b) => this.respect(b) - this.respect(a))[0] ?? null;
     }
     return this.chiefV;
@@ -813,7 +812,7 @@ export class GameScene extends Phaser.Scene {
     const cur = this.chief();
     if (!cur) return;
     const rival = this.villagers
-      .filter((v) => !v.def.child && v !== cur)
+      .filter((v) => !v.isChild && v !== cur)
       .sort((a, b) => this.respect(b) - this.respect(a))[0];
     if (!rival || this.respect(rival) < this.respect(cur) + 3) return;
     this.chiefV = rival;
@@ -851,20 +850,24 @@ export class GameScene extends Phaser.Scene {
     }
 
     const count = (id: BuildingId) => this.buildings.filter((b) => b.id === id).length;
+    const homeless = this.villagers.filter((v) => v.needsHome && !v.isChild);
+    const couple = homeless.find((v) => v.spouse?.alive && v.spouse.needsHome);
     let id: BuildingId | null = null;
     let why = '';
     if (!count('lua') && go >= 8) {
       id = 'lua';
       why = 'Phải có đống lửa để nướng thịt, tối còn sưởi ấm';
+    } else if ((couple || homeless.length >= 2) && go >= 30) {
+      id = 'nha';
+      why = couple
+        ? `${couple.name} và ${couple.spouse!.name} cần một mái nhà riêng`
+        : 'Người mới đến cần có chỗ ở đàng hoàng';
     } else if (!count('mieu') && count('lua') && go >= 15) {
       id = 'mieu';
       why = 'Lập miếu thờ Thành Hoàng, cầu cho làng yên ấm';
     } else if (!count('kho') && go >= 26) {
       id = 'kho';
       why = 'Gỗ nhiều rồi, dựng cái kho gần chỗ làm cho tiện';
-    } else if (count('nha') < 2 && go >= 45) {
-      id = 'nha';
-      why = 'Dựng thêm gian nhà cho cả nhà rộng rãi';
     }
     if (!id) return;
 
@@ -875,7 +878,7 @@ export class GameScene extends Phaser.Scene {
       const cy = this.workSpots.reduce((s, p) => s + p.y, 0) / this.workSpots.length;
       target = { x: Math.round(h.x + (cx - h.x) * 0.5), y: Math.round(h.y + (cy - h.y) * 0.5) };
     }
-    const spot = this.findBuildSpot(id, target, id === 'kho' ? 0 : 2);
+    const spot = this.findBuildSpot(id, target, id === 'kho' ? 0 : id === 'nha' ? 3 : 2);
     if (!spot) return;
     const def = BUILDINGS[id];
     this.state.pay(def.cost);
@@ -913,6 +916,263 @@ export class GameScene extends Phaser.Scene {
       }
     }
     return best;
+  }
+
+  // ------------------------------------------------------------ vòng đời: sinh, lão, tử, kết duyên
+
+  /** Những người đã khuất — vẫn còn trong gia phả. */
+  departed: Villager[] = [];
+  private idCounter = 0;
+  private lastDay = 1;
+  private migrantAt = 0;
+  private lastMigrant = 0;
+  private cemetery: Pt | null = null;
+
+  newId() {
+    return `v${++this.idCounter}`;
+  }
+
+  addVillager(def: VillagerDef, tx: number, ty: number) {
+    const v = new Villager(this, def, tx, ty);
+    this.villagers.push(v);
+    return v;
+  }
+
+  private takenNames() {
+    return new Set(this.villagers.map((v) => v.def.given));
+  }
+
+  /** Đồ ăn đang thiếu tới mức nào (0 = dư dả, 1 = hết sạch). */
+  private foodShortage() {
+    const r = this.state.res;
+    const foodVal = FOOD_ORDER.reduce((s, k) => s + r[k] * (RESOURCES[k].food ?? 0), 0);
+    return Phaser.Math.Clamp(1 - foodVal / (this.villagers.length * 150), 0, 1);
+  }
+
+  addBond(a: Villager, b: Villager, n: number) {
+    const v = Phaser.Math.Clamp(a.bond(b) + n, 0, 100);
+    a.bonds.set(b, v);
+    b.bonds.set(a, v);
+  }
+
+  /** Hai người có thể tìm hiểu nhau không: đủ tuổi, độc thân, khác giới, không phải họ hàng gần. */
+  canCourt(a: Villager, b: Villager) {
+    return (
+      a.alive &&
+      b.alive &&
+      a.def.gender !== b.def.gender &&
+      a.age >= MARRY_AGE &&
+      b.age >= MARRY_AGE &&
+      !a.spouse?.alive &&
+      !b.spouse?.alive &&
+      !a.isFamily(b) &&
+      Math.abs(a.age - b.age) <= 14
+    );
+  }
+
+  /** Đủ thân thiết thì nên duyên vợ chồng. */
+  tryMarry(a: Villager, b: Villager) {
+    if (!this.canCourt(a, b) || a.bond(b) < 60) return;
+    a.spouse = b;
+    b.spouse = a;
+    this.addBond(a, b, 100);
+    for (const [p, q] of [
+      [a, b],
+      [b, a],
+    ]) {
+      p.addMood(20);
+      p.needsHome = true;
+      p.remember('cuoi', '💍', `Nên duyên vợ chồng với ${q.name}`, 3);
+    }
+    a.say('Mình về chung một nhà nhé? 💕', 5000);
+    b.say('Ừ! 💕', 5000);
+    this.sfx('quest', a.x, a.y);
+    this.sparkle(a.x, a.y - 30, 16);
+    this.state.log(`💍 ${a.name} và ${b.name} nên duyên vợ chồng`, { x: a.x, y: a.y });
+  }
+
+  onGrowUp(v: Villager, from: Stage | '', to: Stage) {
+    const at = { x: v.x, y: v.y };
+    if (from === 'be' && to === 'tre') {
+      this.state.log(`🧸 ${v.name} đã biết đi, biết nói, chạy nhảy khắp xóm`, at);
+    } else if (to === 'lon') {
+      this.state.log(`🎋 ${v.def.given} tròn 16 tuổi, giờ đã là ${v.name}`, at);
+      v.note(`🎋 Tròn 16 tuổi, đã trưởng thành`);
+      v.say('Mình lớn rồi, phụ giúp mọi người thôi!');
+    } else if (to === 'gia') {
+      this.state.log(`🍵 ${v.def.given} tròn 60 tuổi, lên lão — giờ là ${v.name}`, at);
+      v.note('🍵 Lên lão, giờ là bậc cao niên trong làng');
+    }
+  }
+
+  /** Mỗi nửa đêm: người già có thể ra đi, các gia đình có thể đón con. Sáng ra có thể có dân mới đến. */
+  private newDay() {
+    for (const v of [...this.villagers]) {
+      if (v.age >= 62 && Math.random() < 0.04 + (v.age - 62) * 0.025) this.passAway(v);
+    }
+    const short = this.foodShortage();
+    for (const mom of [...this.villagers]) {
+      const dad = mom.spouse;
+      if (!mom.female || !dad?.alive || mom.age < MARRY_AGE || mom.age > 42 || dad.age >= 60) continue;
+      if (!mom.home?.built || mom.needsHome || mom.children.length >= 4 || short > 0.6) continue;
+      if (Math.random() < 0.3) this.birth(mom, dad);
+    }
+    this.migrantAt = this.state.time + DAY_LENGTH * (8 / 24);
+  }
+
+  private birth(mom: Villager, dad: Villager) {
+    const gender: Gender = Math.random() < 0.5 ? 'nam' : 'nu';
+    const inherit = pick([...mom.traits, ...dad.traits]);
+    const home = mom.home!;
+    const e = home.entrance;
+    const baby = this.addVillager(
+      {
+        id: this.newId(),
+        given: randomName(gender, this.takenNames()),
+        gender,
+        birthTime: this.state.time,
+        palette: randomPalette(gender),
+        skills: {},
+        traits: rollTraits([inherit], 1),
+      },
+      e.x,
+      e.y,
+    );
+    baby.parents = [dad, mom];
+    baby.home = home;
+    baby.hunger = 100;
+    baby.energy = 100;
+    for (const sib of mom.children) this.addBond(sib, baby, 50);
+    mom.children.push(baby);
+    dad.children.push(baby);
+    for (const p of [mom, dad]) {
+      this.addBond(p, baby, 85);
+      p.addMood(20);
+      p.remember(`con_${baby.def.id}`, '👶', `Đón ${baby.name} chào đời`, 3);
+    }
+    this.sfx('quest', home.px, home.py);
+    this.state.log(
+      `👶 Nhà ${dad.name} – ${mom.name} chào đón ${gender === 'nam' ? 'bé trai' : 'bé gái'} ${baby.def.given}`,
+      { x: home.px, y: home.py },
+    );
+  }
+
+  private passAway(v: Villager) {
+    const grave = this.placeGrave();
+    const wasChief = this.chiefV === v;
+    v.die();
+    this.villagers.splice(this.villagers.indexOf(v), 1);
+    this.departed.push(v);
+    if (this.selected === v) this.select(null);
+    for (const o of this.villagers) {
+      if (o.isFamily(v)) {
+        o.addMood(-20);
+        o.remember(`tang_${v.def.id}`, '🕯️', `Nhớ thương ${v.name}`, 3, { le: 0.3, nghi: 0.1 });
+      } else {
+        o.addMood(-6);
+      }
+    }
+    this.state.log(`🕯️ ${v.name} đã thanh thản về với ông bà, hưởng thọ ${v.years} tuổi`, grave);
+    if (wasChief) {
+      this.chiefV = null;
+      const c = this.chief();
+      if (c) this.state.log(`👑 ${c.name} kế nhiệm làm trưởng làng`, { x: c.x, y: c.y });
+    }
+  }
+
+  /** Mộ phần ở khu nghĩa trang ngoài rìa làng. */
+  private placeGrave(): Pt {
+    const spot = this.cemetery ? this.findBuildSpot('lua', this.cemetery, 0) : this.findBuildSpot('lua', this.homeTile, 8);
+    if (!spot) return { x: this.homeTile.x * TILE, y: this.homeTile.y * TILE };
+    this.cemetery ??= spot;
+    this.occupied.add(spot.y * MAP_W + spot.x);
+    const x = spot.x * TILE + TILE / 2;
+    const y = spot.y * TILE + TILE - 2;
+    this.add.image(x, y, 'mo').setOrigin(0.5, 1).setDepth(y);
+    return { x, y };
+  }
+
+  /** Buổi sáng: làng sung túc thì có người từ làng bên tìm đến. */
+  private migrants() {
+    const st = this.state;
+    if (st.day < 2 || this.villagers.length >= 18 || st.time - this.lastMigrant < DAY_LENGTH * 2) return;
+    const avgMood = this.villagers.reduce((s, v) => s + v.mood, 0) / this.villagers.length;
+    if (avgMood < 55 || this.foodShortage() > 0.5 || Math.random() > 0.45) return;
+    this.lastMigrant = st.time;
+
+    const h = this.homeTile;
+    const ys = Phaser.Utils.Array.Shuffle([...Array(13).keys()].map((i) => h.y + i - 6));
+    const sy = ys.find((y) => this.world.isLand(1, y)) ?? h.y;
+    const sx = this.world.isLand(1, sy) ? 1 : h.x;
+    const make = (gender: Gender, age: number) => {
+      const skills: VillagerDef['skills'] = {};
+      for (const j of Phaser.Utils.Array.Shuffle([...SKILL_JOBS]).slice(0, 2)) skills[j] = Phaser.Math.Between(1, 2);
+      const v = this.addVillager(
+        {
+          id: this.newId(),
+          given: randomName(gender, this.takenNames()),
+          gender,
+          birthTime: st.time - age * DAY_LENGTH,
+          palette: randomPalette(gender),
+          skills: age < 16 ? {} : skills,
+          traits: rollTraits([], 2),
+        },
+        sx,
+        sy,
+      );
+      v.needsHome = true;
+      return v;
+    };
+
+    const at = { x: sx * TILE, y: sy * TILE };
+    if (Math.random() < 0.6) {
+      const v = make(Math.random() < 0.5 ? 'nam' : 'nu', Phaser.Math.Between(18, 28));
+      v.say('Chào cả làng! Cho mình ở lại với nhé');
+      st.log(`🧳 ${v.name} từ làng bên tìm đến, xin ở lại làng`, at);
+      return;
+    }
+    const a = make('nam', Phaser.Math.Between(22, 32));
+    const b = make('nu', Phaser.Math.Between(20, 30));
+    a.spouse = b;
+    b.spouse = a;
+    this.addBond(a, b, 90);
+    let kid: Villager | null = null;
+    if (Math.random() < 0.4) {
+      kid = make(Math.random() < 0.5 ? 'nam' : 'nu', Phaser.Math.Between(2, 8));
+      kid.parents = [a, b];
+      a.children.push(kid);
+      b.children.push(kid);
+      this.addBond(a, kid, 80);
+      this.addBond(b, kid, 80);
+    }
+    a.say('Làng mình đẹp quá, ở lại đây thôi!');
+    st.log(`🧳 Vợ chồng ${a.name} – ${b.name}${kid ? ` cùng ${kid.name}` : ''} từ làng bên tìm đến lập nghiệp`, at);
+  }
+
+  /** Nhà mới xây xong: chia cho vợ chồng chưa có nhà (kèm con nhỏ), rồi tới người mới đến. */
+  private assignHome(b: Building) {
+    const homeless = this.villagers.filter((v) => v.needsHome && !v.isChild);
+    const husbandOrWife = homeless.find((v) => v.spouse?.alive && v.spouse.needsHome);
+    let members: Villager[];
+    if (husbandOrWife) {
+      const sp = husbandOrWife.spouse!;
+      members = [husbandOrWife, sp, ...husbandOrWife.children.filter((c) => c.alive && c.isChild)];
+    } else {
+      members = homeless.slice(0, 2);
+    }
+    if (!members.length) return;
+    for (const m of members) {
+      m.home = b;
+      m.needsHome = false;
+      m.addMood(15);
+      m.note('🏠 Dọn về nhà mới');
+    }
+    const adults = members.filter((m) => !m.isChild);
+    members[0].say('Có nhà mới rồi, vui quá!');
+    this.state.log(
+      husbandOrWife ? `🏠 Vợ chồng ${adults.map((m) => m.name).join(' – ')} dọn về nhà mới` : `🏠 ${adults.map((m) => m.name).join(', ')} dọn về nhà mới`,
+      { x: b.px, y: b.py },
+    );
   }
 
   // ------------------------------------------------------------ điều khiển
@@ -973,6 +1233,7 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-ONE', () => this.state.setSpeed(1));
     kb.on('keydown-TWO', () => this.state.setSpeed(2));
     kb.on('keydown-THREE', () => this.state.setSpeed(3));
+    kb.on('keydown-FOUR', () => this.state.setSpeed(5));
     kb.on('keydown-ESC', () => {
       if (this.powerMode) this.cancelPower();
       else if (this.buildMode) this.cancelBuild();
@@ -1000,9 +1261,45 @@ export class GameScene extends Phaser.Scene {
     const dt = realDt * this.state.speed;
     this.panKeys(realDt);
 
-    if (dt > 0) {
-      const st = this.state;
+    // Chạy nhanh thì chia nhỏ bước mô phỏng cho chuyển động không bị giật.
+    const steps = Math.max(1, Math.ceil(dt / 0.12));
+    for (let i = 0; i < steps && dt > 0; i++) this.simulate(dt / steps);
+
+    this.layoutBubbles();
+    this.updateLighting();
+    this.updateRain(realDt);
+    this.updateGhost();
+
+    if (this.ambience && this.music) {
+      this.soundTimer += realDt;
+      if (this.soundTimer > 0.25) {
+        this.soundTimer = 0;
+        this.updateProximity();
+      }
+      this.ambience.update(realDt, { hour: this.state.hour, night: this.night, rain: this.rainLevel, ...this.prox });
+      this.music.setNight(this.night);
+    }
+
+    this.hudTimer += realDt;
+    if (this.hudTimer > 0.2) {
+      this.hudTimer = 0;
+      this.hud.update();
+    }
+  }
+
+  private simulate(dt: number) {
+    const st = this.state;
+    {
       st.time += dt;
+      const day = st.dayAt(st.time);
+      if (day !== this.lastDay) {
+        this.lastDay = day;
+        this.newDay();
+      }
+      if (this.migrantAt && st.time >= this.migrantAt) {
+        this.migrantAt = 0;
+        this.migrants();
+      }
       for (const v of this.villagers) v.update(dt);
       for (const a of this.animals) a.update(dt);
       this.animals = this.animals.filter((a) => a.alive);
@@ -1031,27 +1328,6 @@ export class GameScene extends Phaser.Scene {
         this.planTimer = 0;
         this.plan();
       }
-    }
-
-    this.layoutBubbles();
-    this.updateLighting();
-    this.updateRain(realDt);
-    this.updateGhost();
-
-    if (this.ambience && this.music) {
-      this.soundTimer += realDt;
-      if (this.soundTimer > 0.25) {
-        this.soundTimer = 0;
-        this.updateProximity();
-      }
-      this.ambience.update(realDt, { hour: this.state.hour, night: this.night, rain: this.rainLevel, ...this.prox });
-      this.music.setNight(this.night);
-    }
-
-    this.hudTimer += realDt;
-    if (this.hudTimer > 0.2) {
-      this.hudTimer = 0;
-      this.hud.update();
     }
   }
 

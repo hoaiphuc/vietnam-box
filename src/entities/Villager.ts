@@ -2,9 +2,12 @@ import Phaser from 'phaser';
 import type { SfxId } from '../audio/sfx';
 import { DAY_LENGTH, ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE } from '../config';
 import { ACT_ORDER, JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
+import { canDo, CHILD_AFF, ELDER_AFF, stageOf, type Gender, type Palette, type Stage } from '../life';
 import { WISHES, type WishType } from '../powers';
 import type { FishingSpot, GameScene } from '../scenes/GameScene';
 import { TRAITS, type TraitId } from '../traits';
+import { personTexture } from '../world/textures';
+import type { Building } from './Building';
 
 /** Hành vi: mỗi `yield` là một khung hình, giá trị nhận lại là dt (giây game). */
 type Beh = Generator<undefined, void, number>;
@@ -17,13 +20,14 @@ export interface Skill {
 
 export interface VillagerDef {
   id: string;
-  name: string;
-  role: string;
-  avatar: string;
-  tex: string;
+  /** Tên riêng; tên gọi (Bé / Anh / Chị / Bố / Mẹ / Ông / Bà) đổi theo tuổi. */
+  given: string;
+  gender: Gender;
+  /** Thời điểm sinh (giây game, có thể âm với người sinh trước khi lập làng). */
+  birthTime: number;
+  palette: Palette;
   skills: Partial<Record<JobId, number>>;
   traits: TraitId[];
-  child?: boolean;
 }
 
 export interface Memory {
@@ -92,10 +96,11 @@ const CHAT_LINES = [
   'Kể chuyện ngày xưa đi!',
   'Ăn no rồi, đời thật dễ chịu',
 ];
+const SWEET_LINES = ['Tối nay trăng đẹp quá...', 'Ngồi cạnh bạn thấy vui ghê', 'Mai mình đi hái chuối chung nhé?', 'Bạn hát hay thật đấy'];
 const RELAX_LINES = ['Ngồi hóng gió bờ tre 🎋', 'Ngắm mây trôi ☁️', 'Ngân nga câu hò 🎶', 'Pha ấm trà ☕', 'Ngồi đan rổ 🧺'];
 const CHILD_LINES = ['Thả diều 🪁', 'Đuổi bắt chuồn chuồn', 'Nhảy dây', 'Hái hoa ven đường 🌼'];
-/** Trẻ con: ham chơi, chưa được đi săn. */
-const CHILD_AFF: Partial<Record<JobId, number>> = { san: -0.5, xay: -0.15, nghi: 0.2, hai: 0.1 };
+const BABY_LINES = ['Bập bẹ nói theo 👶', 'Bò quanh sân', 'Ngủ ngon trong nôi', 'Cười khanh khách'];
+const ELDER_LINES = ['Ngồi kể chuyện ngày xưa', 'Nhâm nhi chén trà ☕', 'Ngắm con cháu chơi đùa', 'Ngồi têm trầu 🍃'];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
@@ -121,7 +126,22 @@ export class Villager {
   options: Option[] = [];
   /** Lời cầu khấn đang chờ Thành Hoàng đáp ứng. */
   wish: { type: WishType; text: string; until: number } | null = null;
+
+  // Gia đình và tình cảm
+  spouse: Villager | null = null;
+  parents: Villager[] = [];
+  children: Villager[] = [];
+  /** Nhà đang ở; null thì ngủ nhờ nhà gần nhất. */
+  home: Building | null = null;
+  /** Mới cưới hoặc mới đến, đang chờ làng dựng nhà riêng. */
+  needsHome = false;
+  /** Mức thân thiết với từng người, 0..100. */
+  bonds = new Map<Villager, number>();
+  alive = true;
+  deathTime = 0;
+
   private lastPray = -DAY_LENGTH;
+  private stageKey: Stage | '' = '';
 
   private prefs = {} as Record<JobId, number>;
   private mode = '';
@@ -141,6 +161,8 @@ export class Villager {
 
   private container: Phaser.GameObjects.Container;
   private body: Phaser.GameObjects.Image;
+  private shadow: Phaser.GameObjects.Image;
+  private label: Phaser.GameObjects.Text;
   private ring: Phaser.GameObjects.Image;
   private icon: Phaser.GameObjects.Text;
   private gfx: Phaser.GameObjects.Graphics;
@@ -163,12 +185,11 @@ export class Villager {
     this.skills.le = { level: 0, xp: 0 };
     for (const j of ACT_ORDER) this.prefs[j] = (Math.random() - 0.5) * 0.2;
 
-    const scale = def.child ? 0.8 : 1;
     this.ring = scene.add.image(0, 0, 'ring').setVisible(false);
-    const shadow = scene.add.image(0, 0, 'shadow').setScale(scale * 0.8);
-    this.body = scene.add.image(0, 2, def.tex).setOrigin(0.5, 1).setScale(scale);
-    const label = scene.add
-      .text(0, 8, def.name, {
+    this.shadow = scene.add.image(0, 0, 'shadow');
+    this.body = scene.add.image(0, 2, 'shadow').setOrigin(0.5, 1);
+    this.label = scene.add
+      .text(0, 8, '', {
         fontFamily: FONT,
         fontSize: '10px',
         fontStyle: '600',
@@ -178,9 +199,9 @@ export class Villager {
         resolution: 2,
       })
       .setOrigin(0.5, 0);
-    this.icon = scene.add.text(0, -50 * scale, '', { fontSize: '14px', resolution: 2 }).setOrigin(0.5, 1);
+    this.icon = scene.add.text(0, -50, '', { fontSize: '14px', resolution: 2 }).setOrigin(0.5, 1);
     this.gfx = scene.add.graphics();
-    this.container = scene.add.container(this.x, this.y, [this.ring, shadow, this.gfx, this.body, label, this.icon]);
+    this.container = scene.add.container(this.x, this.y, [this.ring, this.shadow, this.gfx, this.body, this.label, this.icon]);
 
     this.bubbleBg = scene.add.graphics();
     this.bubbleText = scene.add
@@ -195,10 +216,109 @@ export class Villager {
       })
       .setOrigin(0.5, 1);
     this.bubble = scene.add.container(0, 0, [this.bubbleBg, this.bubbleText]).setDepth(60001).setVisible(false);
+    this.refreshLook();
   }
 
+  // ------------------------------------------------------------ tuổi tác, tên gọi, gia đình
+
+  /** Tuổi (1 ngày game = 1 năm). Người đã mất thì dừng ở tuổi lúc mất. */
+  get age() {
+    return ((this.alive ? this.scene.state.time : this.deathTime) - this.def.birthTime) / DAY_LENGTH;
+  }
+  get years() {
+    return Math.floor(this.age);
+  }
+  get stage(): Stage {
+    return stageOf(this.age);
+  }
+  get isChild() {
+    return this.age < 16;
+  }
+  get isElder() {
+    return this.stage === 'gia';
+  }
+  get female() {
+    return this.def.gender === 'nu';
+  }
+
+  /** Tên gọi theo tuổi và vai vế: Bé Na, Chị Na, Mẹ Na, Bà Na... */
   get name() {
-    return this.def.name;
+    const g = this.def.given;
+    switch (this.stage) {
+      case 'be':
+      case 'tre':
+        return `Bé ${g}`;
+      case 'gia':
+        return `${this.female ? 'Bà' : 'Ông'} ${g}`;
+      default:
+        if (this.children.length) return `${this.female ? 'Mẹ' : 'Bố'} ${g}`;
+        return `${this.female ? 'Chị' : 'Anh'} ${g}`;
+    }
+  }
+
+  get avatar() {
+    switch (this.stage) {
+      case 'be':
+        return '👶';
+      case 'tre':
+        return this.female ? '👧🏻' : '👦🏻';
+      case 'gia':
+        return this.female ? '👵🏻' : '👴🏻';
+      default:
+        return this.female ? '👩🏻' : '👨🏻';
+    }
+  }
+
+  /** "34 tuổi · Chồng của Mẹ Lan · 1 con" */
+  get role() {
+    const parts = [this.alive ? `${this.years} tuổi` : `Hưởng thọ ${this.years} tuổi`];
+    if (this.spouse) parts.push(`${this.female ? 'Vợ' : 'Chồng'} của ${this.spouse.name}`);
+    else if (this.parents.length) parts.push(`Con của ${this.parents.map((p) => p.name).join(' và ')}`);
+    if (this.children.length) parts.push(`${this.children.length} con`);
+    return parts.join(' · ');
+  }
+
+  bond(o: Villager) {
+    return this.bonds.get(o) ?? 0;
+  }
+
+  /** Người thân trong nhà: vợ chồng, cha mẹ, con cái, anh chị em, ông bà, cháu. */
+  isFamily(o: Villager) {
+    if (o === this.spouse || this.parents.includes(o) || this.children.includes(o)) return true;
+    if (this.parents.some((p) => o.parents.includes(p))) return true;
+    return this.parents.some((p) => p.parents.includes(o)) || o.parents.some((p) => p.parents.includes(this));
+  }
+
+  /** Đổi ngoại hình khi bước sang tuổi mới. */
+  private refreshLook() {
+    const st = this.stage;
+    this.stageKey = st;
+    const p = this.def.palette;
+    const young = st === 'be' || st === 'tre';
+    const key = personTexture(this.scene, `p_${this.def.id}_${st}`, {
+      shirt: p.shirt,
+      shirtDark: p.shirtDark,
+      pants: p.pants,
+      hat: !young && p.hat,
+      hair: st === 'gia' ? '#cfcfcf' : '#1d1a17',
+      long: this.female && !young,
+      buns: this.female && young,
+      cane: st === 'gia',
+    });
+    const scale = st === 'be' ? 0.55 : st === 'tre' ? 0.8 : 1;
+    this.body.setTexture(key).setScale(scale);
+    this.shadow.setScale(scale * 0.8);
+    this.icon.setY(-50 * scale);
+  }
+
+  /** Mất đi: dừng mọi việc đang làm (nhả chỗ đã giữ) và xoá khỏi bản đồ. */
+  die() {
+    this.alive = false;
+    this.deathTime = this.scene.state.time;
+    this.beh?.return(undefined);
+    this.beh = null;
+    this.container.destroy();
+    this.bubble.destroy();
   }
   get tileX() {
     return Math.floor(this.x / TILE);
@@ -252,7 +372,8 @@ export class Villager {
     let a = this.prefs[j];
     for (const t of this.traits) a += TRAITS[t].aff?.[j] ?? 0;
     for (const m of this.memories) a += m.bias?.[j] ?? 0;
-    if (this.def.child) a += CHILD_AFF[j] ?? 0;
+    if (this.isChild) a += CHILD_AFF[j] ?? 0;
+    if (this.isElder) a += ELDER_AFF[j] ?? 0;
     return a;
   }
 
@@ -337,7 +458,8 @@ export class Villager {
   /** Hiệu suất làm việc theo cấp nghề, thể trạng và tâm trạng. */
   eff(job: JobId) {
     let e = 0.5 + 0.12 * this.skills[job].level;
-    if (this.def.child) e *= 0.75;
+    if (this.isChild) e *= 0.75;
+    if (this.isElder) e *= 0.8;
     if (this.hunger < 10) e *= 0.7;
     if (this.energy < 10) e *= 0.8;
     return e * (0.85 + this.mood * 0.003);
@@ -347,14 +469,16 @@ export class Villager {
   mentor(job: JobId): Villager | null {
     let best: Villager | null = null;
     for (const o of this.scene.villagers) {
-      if (o === this || o.skills[job].level <= this.skills[job].level) continue;
+      if (o === this || o.isChild || o.skills[job].level <= this.skills[job].level) continue;
       if (!best || o.skills[job].level > best.skills[job].level) best = o;
     }
     return best;
   }
 
   xpMultiplier(job: JobId) {
-    return (this.def.child ? 1.5 : 1) * (this.mentor(job) ? 1.5 : 1) * (this.has('toMo') ? 1.25 : 1);
+    // Người già nhiều kinh nghiệm, dạy nghề giỏi hơn.
+    const m = this.mentor(job);
+    return (this.isChild ? 1.5 : 1) * (m ? (m.isElder ? 2 : 1.5) : 1) * (this.has('toMo') ? 1.25 : 1);
   }
 
   gainXp(job: JobId, amount: number) {
@@ -410,6 +534,12 @@ export class Villager {
     if (!this.beh) this.beh = this.think();
     if (this.beh.next(dt).done) this.beh = null;
     this.updateMood(dt);
+    const st = this.stage;
+    if (st !== this.stageKey) {
+      const prev = this.stageKey;
+      this.refreshLook();
+      if (prev) this.scene.onGrowUp(this, prev, st);
+    }
     this.render(dt);
   }
 
@@ -429,6 +559,8 @@ export class Villager {
   private render(dt: number) {
     const body = this.body;
     this.container.setPosition(this.x, this.y).setDepth(this.y).setVisible(!this.inside);
+    const name = this.name;
+    if (this.label.text !== name) this.label.setText(name);
     if (this.moving) {
       this.phase += dt * 13;
       body.y = 2 - Math.abs(Math.sin(this.phase)) * 3;
@@ -447,7 +579,7 @@ export class Villager {
     const g = this.gfx;
     g.clear();
     if (this.progress !== null) {
-      const top = this.def.child ? -44 : -54;
+      const top = this.isChild ? -44 : -54;
       g.fillStyle(0x2b1d10, 0.55).fillRoundedRect(-13, top - 1, 26, 6, 3);
       g.fillStyle(0xffd34a, 1).fillRoundedRect(-12, top, Math.max(2, 24 * this.progress), 4, 2);
     }
@@ -476,7 +608,7 @@ export class Villager {
     if (!this.bubble.visible) return null;
     return {
       x: this.x + 6,
-      y: this.y - (this.def.child ? 58 : 68),
+      y: this.y - (this.stage === 'be' ? 42 : this.isChild ? 58 : 68),
       w: this.bubbleText.width + 14,
       h: this.bubbleText.height + 8,
     };
@@ -489,7 +621,8 @@ export class Villager {
   // ------------------------------------------------------------ hành vi cơ bản
 
   private speed() {
-    let s = this.def.child ? 58 : 68;
+    const st = this.stage;
+    let s = st === 'be' ? 35 : st === 'tre' ? 58 : st === 'gia' ? 52 : 68;
     if (this.hunger < 10) s *= 0.75;
     if (this.energy < 10) s *= 0.8;
     return s;
@@ -564,9 +697,14 @@ export class Villager {
     }
   }
 
+  /** Quanh nhà mình (hoặc giữa làng nếu chưa có nhà). */
+  private homeSpot() {
+    return this.home?.built ? this.home.entrance : this.scene.homeTile;
+  }
+
   private *idle(status: string, sec = 4): Beh {
     this.status = status;
-    const h = this.scene.homeTile;
+    const h = this.homeSpot();
     const tx = h.x + Phaser.Math.Between(-4, 4);
     const ty = h.y + Phaser.Math.Between(-2, 4);
     if (this.scene.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.7);
@@ -585,6 +723,7 @@ export class Villager {
     const fireEvening = evening && !!s.nearestBuilt('lua', this.x, this.y);
     const opts: Option[] = [];
     for (const j of ACT_ORDER) {
+      if (!canDo(this.stage, this.age, j)) continue;
       const n = j === 'nghi' ? this.restNeed(fireEvening) : j === 'le' ? this.prayNeed() : need[j];
       if (n < 0) continue;
       const aff = this.affinity(j);
@@ -701,13 +840,14 @@ export class Villager {
   }
 
   private *sleep(): Beh {
-    const home = this.scene.nearestHome(this.x, this.y);
+    const home = this.home?.built ? this.home : this.scene.nearestHome(this.x, this.y);
     this.status = 'Về nhà đi ngủ';
     if (home) {
       const ok = yield* this.walkTo(home.entrance.x, home.entrance.y);
       if (ok) this.inside = true;
     }
     this.asleep = true;
+    this.idleTime = 0;
     this.status = home ? 'Đang ngủ trong nhà 💤' : 'Ngủ ngoài trời 💤';
     let z = Math.random() * 2;
     try {
@@ -763,10 +903,12 @@ export class Villager {
       if (ok) this.face(fire.px);
       this.status = 'Quây quần bên bếp lửa 🔥';
     } else {
-      const lines = this.def.child ? CHILD_LINES : RELAX_LINES;
-      const home = s.homeTile;
-      const tx = home.x + Phaser.Math.Between(-6, 6);
-      const ty = home.y + Phaser.Math.Between(-4, 6);
+      const st = this.stage;
+      const lines = st === 'be' ? BABY_LINES : st === 'tre' ? CHILD_LINES : st === 'gia' ? ELDER_LINES : RELAX_LINES;
+      const home = this.homeSpot();
+      const r = st === 'be' ? 2 : 6;
+      const tx = home.x + Phaser.Math.Between(-r, r);
+      const ty = home.y + Phaser.Math.Between(-Math.min(r, 4), r);
       this.status = 'Đi dạo quanh xóm';
       if (s.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.65);
       this.status = lines[Math.floor(Math.random() * lines.length)];
@@ -787,9 +929,14 @@ export class Villager {
         const friend = s.villagers.find(
           (o) => o !== this && !o.inside && o.relaxing && Phaser.Math.Distance.Between(o.x, o.y, this.x, this.y) < 90,
         );
-        if (friend && Math.random() < 0.6) {
-          this.say(CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)], 3500);
+        if (friend && Math.random() < 0.6 && this.stage !== 'be') {
+          // Hai người độc thân đã thân nhau thì nói chuyện ngọt ngào hơn.
+          const sweet = s.canCourt(this, friend) && this.bond(friend) >= 35;
+          const lines = sweet ? SWEET_LINES : CHAT_LINES;
+          this.say(lines[Math.floor(Math.random() * lines.length)], 3500);
           this.addMood(2);
+          s.addBond(this, friend, fireEvening ? 7 : 4);
+          s.tryMarry(this, friend);
         }
       }
       if (this.mustStop()) return;

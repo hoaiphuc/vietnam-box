@@ -73,13 +73,18 @@ function mix(a: string, b: string, t: number) {
 
 // ---------------------------------------------------------------- nhân vật
 
-interface Look {
+export interface Look {
   shirt: string;
   shirtDark: string;
   pants: string;
   hat: boolean;
   hair: string;
+  /** Áo bà ba dài (nữ). */
   long?: boolean;
+  /** Tóc búi hai bên (bé gái). */
+  buns?: boolean;
+  /** Chống gậy (người già). */
+  cane?: boolean;
 }
 
 function drawPerson(c: Ctx, o: Look) {
@@ -100,6 +105,8 @@ function drawPerson(c: Ctx, o: Look) {
   // nút áo bà ba
   circle(c, 14, 22, 0.8, 'rgba(255,255,255,0.5)');
   circle(c, 14, 26, 0.8, 'rgba(255,255,255,0.5)');
+  // gậy
+  if (o.cane) line(c, 23, 27, 25.5, 43, '#7a5634', 1.6);
   // đầu
   circle(c, 14, 12.5, 6, skin);
   if (!o.hat) {
@@ -107,9 +114,17 @@ function drawPerson(c: Ctx, o: Look) {
     c.beginPath();
     c.arc(14, 11.5, 6.3, Math.PI * 1.05, Math.PI * 1.95);
     c.fill();
-    circle(c, 9.5, 11, 2.2, o.hair);
-    circle(c, 18.5, 11, 2.2, o.hair);
-    circle(c, 14, 4.5, 1.8, o.hair);
+    if (o.buns) {
+      circle(c, 8.5, 9.5, 2.4, o.hair);
+      circle(c, 19.5, 9.5, 2.4, o.hair);
+    } else {
+      circle(c, 9.5, 11, 1.6, o.hair);
+    }
+    circle(c, 14, 4.8, 1.6, o.hair);
+  } else {
+    // tóc mai dưới vành nón
+    circle(c, 8.8, 12.5, 1.6, o.hair);
+    circle(c, 19.5, 12.5, 1.2, o.hair);
   }
   circle(c, 15.5, 13, 0.9, '#2a1d14');
   circle(c, 18.5, 13, 0.9, '#2a1d14');
@@ -407,18 +422,31 @@ function drawFlame(c: Ctx) {
   tear(10, 27, 3.5, 11, '#fff0a0');
 }
 
+/** Mộ phần: nấm đất phủ cỏ, bia đá và bát hương. */
+function drawGrave(c: Ctx) {
+  ell(c, 16, 26, 14, 3.5, 'rgba(0,0,0,0.2)');
+  ell(c, 16, 21, 13, 6.5, '#8a6a44');
+  ell(c, 16, 19.5, 12, 5.5, '#6f9a4a');
+  for (let i = 0; i < 7; i++) line(c, 7 + i * 3, 19 + (i % 2), 7.5 + i * 3, 16.5, '#86b55d', 1);
+  rrect(c, 12, 4, 8, 14, 3, '#9d9a8e');
+  rrect(c, 13, 5, 6, 12, 2.5, '#b8b5a8');
+  line(c, 14.5, 8.5, 17.5, 8.5, '#7a776c', 0.8);
+  line(c, 14.5, 11, 17.5, 11, '#7a776c', 0.8);
+  ell(c, 16, 22, 3, 1.4, '#c99a3a');
+  line(c, 15.5, 22, 15.5, 18.5, '#c0392b', 0.7);
+  line(c, 16.5, 22, 16.5, 18.5, '#c0392b', 0.7);
+}
+
+/** Tạo (một lần) texture nhân vật theo ngoại hình. */
+export function personTexture(scene: Phaser.Scene, key: string, look: Look) {
+  if (!scene.textures.exists(key)) make(scene, key, 28, 45, (c) => drawPerson(c, look));
+  return key;
+}
+
 // ---------------------------------------------------------------- tạo toàn bộ texture
 
 export function createTextures(scene: Phaser.Scene) {
-  make(scene, 'v_bo', 28, 45, (c) =>
-    drawPerson(c, { shirt: '#7a5236', shirtDark: '#654229', pants: '#33302c', hat: true, hair: '#1d1a17' }),
-  );
-  make(scene, 'v_me', 28, 45, (c) =>
-    drawPerson(c, { shirt: '#9c72b5', shirtDark: '#8460a0', pants: '#24211f', hat: true, hair: '#1d1a17', long: true }),
-  );
-  make(scene, 'v_con', 28, 45, (c) =>
-    drawPerson(c, { shirt: '#f3f1ea', shirtDark: '#dcd8cc', pants: '#3b6fb6', hat: false, hair: '#1d1a17' }),
-  );
+  make(scene, 'mo', 32, 28, drawGrave);
 
   make(scene, 'tree1', 52, 68, (c) => drawTree(c, '#2f6a35', '#3f8a3f', '#62a94f', 1));
   make(scene, 'tree2', 52, 68, (c) => drawTree(c, '#265a3a', '#357a48', '#4f9a5a', 2));

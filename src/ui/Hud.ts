@@ -2,12 +2,17 @@ import { BUILD_ORDER, BUILDINGS, JOB_ORDER, JOBS, RES_ORDER, RESOURCES, type Bui
 import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
 import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
 import type { GameScene } from '../scenes/GameScene';
+import type { HistoryEntry } from '../state';
 import { TRAITS } from '../traits';
 
-const q = <T extends HTMLElement = HTMLElement>(root: ParentNode, sel: string) => root.querySelector(sel) as T;
+/** Trạng thái thu lại / mở ra của các bảng (localStorage). */
+const FOLD_KEY = 'langque.folds';
+
+const q =<T extends HTMLElement = HTMLElement>(root: ParentNode, sel: string) => root.querySelector(sel) as T;
 
 interface CardEls {
   root: HTMLElement;
+  avatar: HTMLElement;
   name: HTMLElement;
   job: HTMLElement;
   status: HTMLElement;
@@ -40,6 +45,8 @@ export class Hud {
   private wishes: HTMLElement;
   private wishKey = '';
   private historyList: HTMLElement;
+  private historyFull: HTMLElement;
+  private historyOverlay: HTMLElement;
   private historyKey = '';
   private detail: HTMLElement;
   private detailFor: Villager | null = null;
@@ -69,6 +76,7 @@ export class Hud {
           <button data-speed="1" title="Bình thường (1)">▶</button>
           <button data-speed="2" title="Nhanh (2)">⏩</button>
           <button data-speed="3" title="Rất nhanh (3)">⏭</button>
+          <button data-speed="5" title="Nhanh nhất (4) — xem các thế hệ nối tiếp">x5</button>
         </div>
         <div class="sound">
           <button class="snd-btn" title="Âm thanh (M để tắt/bật)">🔊</button>
@@ -82,9 +90,33 @@ export class Hud {
           </div>
         </div>
       </div>
-      <div class="family panel"><h4>Dân làng</h4><div class="cards"></div></div>
+      <div class="family panel" data-fold="family">
+        <div class="fhead">
+          <button class="ptitle" title="Thu lại / mở ra"><span class="chev">▾</span>Dân làng <span class="pop"></span></button>
+          <button class="tree-btn" title="Xem gia phả các thế hệ">🌳 Gia phả</button>
+        </div>
+        <div class="cards"></div>
+      </div>
+      <div class="tree-overlay" hidden>
+        <div class="tree-card panel">
+          <div class="tree-head"><h3>🌳 Gia phả làng</h3><button class="close tree-close" title="Đóng">✕</button></div>
+          <div class="tree-body"></div>
+        </div>
+      </div>
+      <div class="tree-overlay hist-overlay" hidden>
+        <div class="tree-card panel">
+          <div class="tree-head"><h3>📜 Sử làng <small class="hcount"></small></h3><button class="close hist-close" title="Đóng">✕</button></div>
+          <div class="tree-body hfull"></div>
+        </div>
+      </div>
       <div class="right-col">
-        <div class="history panel"><h4>📜 Sử làng</h4><div class="hlist"></div></div>
+        <div class="history panel" data-fold="history">
+          <div class="fhead">
+            <button class="ptitle" title="Thu lại / mở ra"><span class="chev">▾</span>📜 Sử làng <small class="hsub"></small></button>
+            <button class="tree-btn hist-all" title="Xem toàn bộ lịch sử của làng">📖 Xem tất cả</button>
+          </div>
+          <div class="hlist"></div>
+        </div>
         <div class="wishes panel" hidden><h4>Lời cầu khấn</h4><ul></ul></div>
         <div class="detail panel" hidden></div>
       </div>
@@ -105,6 +137,7 @@ export class Hud {
             <li>🖱️ Nhấp vào một người để xem họ đang nghĩ gì</li>
             <li>💭 Báo mộng để gợi ý một việc — nghe hay không là tuỳ họ</li>
             <li>📐 Quy hoạch chỗ xây, trưởng làng sẽ cho xây khi đủ gỗ</li>
+            <li>🌳 Mỗi ngày là một năm: trẻ lớn lên, kết duyên, sinh con, già đi — xem Gia phả</li>
             <li>✋ Kéo chuột / WASD để di chuyển, cuộn chuột để phóng to</li>
             <li>⏸ Space tạm dừng · 1 2 3 đổi tốc độ · M tắt tiếng</li>
           </ul>
@@ -127,7 +160,11 @@ export class Hud {
       if (li) scene.usePower(li.dataset.power as PowerId);
     });
     this.detail.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.free') && this.detailFor) this.scene.clearIntent(this.detailFor);
+      const t = e.target as HTMLElement;
+      if (t.closest('.free') && this.detailFor) this.scene.clearIntent(this.detailFor);
+      const rel = t.closest<HTMLElement>('[data-vid]');
+      const v = rel && scene.villagers.find((x) => x.def.id === rel.dataset.vid);
+      if (v) scene.focus(v);
     });
 
     this.speedBtns = [...this.root.querySelectorAll<HTMLButtonElement>('[data-speed]')];
@@ -143,39 +180,43 @@ export class Hud {
 
     this.setupSound();
 
-    const cards = q(this.root, '.cards');
-    for (const v of scene.villagers) {
-      const el = document.createElement('div');
-      el.className = 'vcard';
-      el.innerHTML = `
-        <div class="avatar">${v.def.avatar}</div>
-        <div class="vinfo">
-          <div class="vname"><span class="vn"></span> <span class="vjob"></span></div>
-          <div class="vstatus"></div>
-          <div class="bars">
-            <div class="bar hunger" title="No bụng"><i></i></div>
-            <div class="bar energy" title="Sức lực"><i></i></div>
-            <div class="bar mood" title="Tâm trạng"><i></i></div>
-          </div>
-        </div>`;
-      el.addEventListener('click', () => scene.focus(v));
-      cards.appendChild(el);
-      this.cards.set(v, {
-        root: el,
-        name: q(el, '.vn'),
-        job: q(el, '.vjob'),
-        status: q(el, '.vstatus'),
-        hunger: q(el, '.hunger i'),
-        energy: q(el, '.energy i'),
-        mood: q(el, '.mood i'),
-      });
-    }
+    this.syncCards();
+
+    const overlay = q(this.root, '.tree-overlay');
+    q(this.root, '.tree-btn').addEventListener('click', () => this.showTree());
+    q(this.root, '.tree-close').addEventListener('click', () => (overlay.hidden = true));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.hidden = true;
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-vid]');
+      const v = el && scene.villagers.find((x) => x.def.id === el.dataset.vid);
+      if (v) {
+        overlay.hidden = true;
+        scene.focus(v);
+      }
+    });
+
+    this.setupFolds();
 
     this.historyList = q(this.root, '.hlist');
-    this.historyList.addEventListener('click', (e) => {
+    this.historyFull = q(this.root, '.hfull');
+    this.historyOverlay = q(this.root, '.hist-overlay');
+    const goTo = (e: Event) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
       const at = el && scene.state.history[Number(el.dataset.i)]?.at;
-      if (at) scene.panTo(at.x, at.y);
+      if (!at) return false;
+      scene.panTo(at.x, at.y);
+      return true;
+    };
+    this.historyList.addEventListener('click', goTo);
+    q(this.root, '.hist-all').addEventListener('click', () => {
+      this.historyOverlay.hidden = false;
+      this.historyKey = '';
+      this.updateHistory();
+      this.historyFull.scrollTop = 0;
+    });
+    q(this.root, '.hist-close').addEventListener('click', () => (this.historyOverlay.hidden = true));
+    this.historyOverlay.addEventListener('click', (e) => {
+      if (e.target === this.historyOverlay || goTo(e)) this.historyOverlay.hidden = true;
     });
 
     const pw = q(this.root, '.powers');
@@ -212,6 +253,77 @@ export class Hud {
 
     scene.state.events.on('log', (msg: string) => this.toast(msg));
     this.update();
+  }
+
+  /** Thêm thẻ cho người mới (sinh ra, đến làng), bỏ thẻ người đã mất. */
+  private syncCards() {
+    const list = this.scene.villagers;
+    if (list.length === this.cards.size && list.every((v) => this.cards.has(v))) return;
+    for (const [v, c] of this.cards) {
+      if (!list.includes(v)) {
+        c.root.remove();
+        this.cards.delete(v);
+      }
+    }
+    const box = q(this.root, '.cards');
+    for (const v of list) {
+      if (this.cards.has(v)) continue;
+      const el = document.createElement('div');
+      el.className = 'vcard';
+      el.innerHTML = `
+        <div class="avatar"></div>
+        <div class="vinfo">
+          <div class="vname"><span class="vn"></span> <span class="vjob"></span></div>
+          <div class="vstatus"></div>
+          <div class="bars">
+            <div class="bar hunger" title="No bụng"><i></i></div>
+            <div class="bar energy" title="Sức lực"><i></i></div>
+            <div class="bar mood" title="Tâm trạng"><i></i></div>
+          </div>
+        </div>`;
+      el.addEventListener('click', () => this.scene.focus(v));
+      box.appendChild(el);
+      this.cards.set(v, {
+        root: el,
+        avatar: q(el, '.avatar'),
+        name: q(el, '.vn'),
+        job: q(el, '.vjob'),
+        status: q(el, '.vstatus'),
+        hunger: q(el, '.hunger i'),
+        energy: q(el, '.energy i'),
+        mood: q(el, '.mood i'),
+      });
+    }
+    q(this.root, '.pop').textContent = `(${list.length})`;
+  }
+
+  /** Gia phả: mỗi dòng họ bắt đầu từ người không có cha mẹ trong làng, con cháu xếp lồng bên dưới. */
+  private showTree() {
+    const s = this.scene;
+    const all = [...s.villagers, ...s.departed];
+    const person = (p: Villager) => {
+      const info = p.alive ? `${p.years} tuổi` : `🕯️ hưởng thọ ${p.years}`;
+      return `<span class="gp-p${p.alive ? '' : ' dead'}"${p.alive ? ` data-vid="${p.def.id}"` : ''}>
+        <span class="gp-a">${p.avatar}</span><b>${p.name}</b><small>${info}</small></span>`;
+    };
+    const seen = new Set<Villager>();
+    const branch = (p: Villager): string => {
+      seen.add(p);
+      const sp = p.spouse;
+      if (sp) seen.add(sp);
+      const kids = [...new Set([...p.children, ...(sp?.children ?? [])])].sort((a, b) => a.def.birthTime - b.def.birthTime);
+      return `<li><div class="gp-node">${person(p)}${sp ? `<span class="gp-heart">♥</span>${person(sp)}` : ''}</div>
+        ${kids.length ? `<ul>${kids.map(branch).join('')}</ul>` : ''}</li>`;
+    };
+    // Gốc: người không có cha mẹ, và vợ/chồng (nếu có) cũng không thuộc dòng họ nào khác.
+    const roots = all
+      .filter((p) => !p.parents.length && !(p.spouse && p.spouse.parents.length))
+      .sort((a, b) => a.def.birthTime - b.def.birthTime);
+    let html = '';
+    for (const r of roots) if (!seen.has(r)) html += `<ul class="gp-tree">${branch(r)}</ul>`;
+    q(this.root, '.tree-body').innerHTML =
+      html + `<p class="gp-note">${s.villagers.length} người đang sống · ${s.departed.length} người đã khuất · nhấp vào một người để xem</p>`;
+    q(this.root, '.tree-overlay').hidden = false;
   }
 
   private setupSound() {
@@ -272,30 +384,69 @@ export class Hud {
     }
   }
 
-  /** Sử làng: chia theo ngày, mới nhất ở trên; sự kiện có vị trí thì nhấp để tới đó. */
-  private updateHistory() {
+  /** Nút thu lại / mở ra trên tiêu đề bảng; nhớ trạng thái cho lần chơi sau. */
+  private setupFolds() {
+    let saved: Record<string, boolean> = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}');
+    } catch {
+      /* trình duyệt chặn bộ nhớ — dùng mặc định */
+    }
+    for (const panel of this.root.querySelectorAll<HTMLElement>('[data-fold]')) {
+      const id = panel.dataset.fold!;
+      panel.classList.toggle('folded', !!saved[id]);
+      q(panel, '.ptitle').addEventListener('click', () => {
+        saved[id] = panel.classList.toggle('folded');
+        try {
+          localStorage.setItem(FOLD_KEY, JSON.stringify(saved));
+        } catch {
+          /* bỏ qua */
+        }
+      });
+    }
+  }
+
+  private historyHtml(entries: { e: HistoryEntry; i: number }[], days: boolean) {
     const s = this.scene.state;
-    const h = s.history;
-    const key = `${h.length}:${h[0]?.time ?? ''}`;
-    if (key === this.historyKey) return;
-    this.historyKey = key;
     let day = -1;
     let html = '';
-    h.forEach((e, i) => {
+    for (const { e, i } of entries) {
       const d = s.dayAt(e.time);
-      if (d !== day) {
+      if (days && d !== day) {
         day = d;
         html += `<div class="hday">Ngày ${d}</div>`;
       }
       html += `<div class="hitem${e.at ? ' loc' : ''}" data-i="${i}"${e.at ? ' title="Nhấp để tới chỗ này"' : ''}>
         <time>${s.clockAt(e.time)}</time><span>${e.text}</span></div>`;
-    });
-    this.historyList.innerHTML = html;
+    }
+    return html;
+  }
+
+  /** Sử làng: bảng nhỏ chỉ hiện chuyện hôm nay; "Xem tất cả" mở toàn bộ, chia theo ngày. Mới nhất ở trên. */
+  private updateHistory() {
+    const s = this.scene.state;
+    const h = s.history;
+    const full = !this.historyOverlay.hidden;
+    const key = `${h.length}:${h[0]?.time ?? ''}:${s.day}:${full}`;
+    if (key === this.historyKey) return;
+    this.historyKey = key;
+
+    q(this.root, '.hsub').textContent = `· Ngày ${s.day}`;
+    const all = h.map((e, i) => ({ e, i }));
+    const today = all.filter(({ e }) => s.dayAt(e.time) === s.day);
+    this.historyList.innerHTML = today.length
+      ? this.historyHtml(today, false)
+      : `<div class="hempty">Hôm nay làng còn yên ả, chưa có chuyện gì…</div>`;
+
+    if (full) {
+      q(this.historyOverlay, '.hcount').textContent = `· ${h.length} sự kiện qua ${s.day} ngày`;
+      this.historyFull.innerHTML = this.historyHtml(all, true);
+    }
   }
 
   private updateWishes() {
     const list = this.scene.villagers.filter((v) => v.wish);
-    const key = list.map((v) => `${v.def.id}:${v.wish!.type}`).join();
+    const key = list.map((v) => `${v.name}:${v.wish!.type}`).join();
     if (key === this.wishKey) return;
     this.wishKey = key;
     this.wishes.hidden = !list.length;
@@ -304,7 +455,7 @@ export class Hud {
         const w = WISHES[v.wish!.type];
         const p = POWERS[w.power];
         return `<li data-power="${w.power}" title="Nhấp để ${p.name.toLowerCase()}">
-          <span class="wa">${v.def.avatar}</span>
+          <span class="wa">${v.avatar}</span>
           <span class="wt"><b>${v.name}</b>“${v.wish!.text}”</span>
           <span class="wp">${p.icon}</span>
         </li>`;
@@ -325,8 +476,8 @@ export class Hud {
     this.detail.hidden = false;
     this.detail.innerHTML = `
       <div class="dhead">
-        <div class="avatar big">${v.def.avatar}</div>
-        <div class="dtitle"><h3>${v.name} <span class="crown" title="Trưởng làng"></span></h3><small>${v.def.role}</small></div>
+        <div class="avatar big"></div>
+        <div class="dtitle"><h3><span class="dname"></span> <span class="crown" title="Trưởng làng"></span></h3><small class="drole"></small></div>
         <button class="close" title="Đóng">✕</button>
       </div>
       <div class="traits">
@@ -341,6 +492,9 @@ export class Hud {
       </div>
       <h4>Đang cân nhắc</h4>
       <div class="options"></div>
+      <h4>Gia đình & bạn bè</h4>
+      <ul class="rels"></ul>
+      <div class="dream-wrap">
       <h4>Báo mộng <small>— ${DREAM_COST} 🙏, gợi ý một việc, nghe hay không là tuỳ họ</small></h4>
       <div class="jobs">
         ${JOB_ORDER.map(
@@ -353,6 +507,7 @@ export class Hud {
         ).join('')}
       </div>
       <div class="dintent"></div>
+      </div>
       <div class="dnote"></div>
       <div class="memories-wrap"><h4>Ký ức</h4><ul class="memories"></ul></div>
       <h4>Nhật ký</h4>
@@ -365,11 +520,36 @@ export class Hud {
     this.updateDetail();
   }
 
+  /** Vợ/chồng, cha mẹ, con cái và những người bạn thân nhất. */
+  private relations(v: Villager) {
+    const row = (label: string, o: Villager) =>
+      `<li${o.alive ? ` data-vid="${o.def.id}"` : ' class="dead"'}><span>${o.avatar}</span><b>${o.name}</b><small>${label}${o.alive ? '' : ' · đã khuất'}</small></li>`;
+    const rows: string[] = [];
+    if (v.spouse) rows.push(row(v.female ? 'Chồng' : 'Vợ', v.spouse));
+    for (const p of v.parents) rows.push(row(p.female ? 'Mẹ' : 'Bố', p));
+    for (const c of v.children) rows.push(row(c.female ? 'Con gái' : 'Con trai', c));
+    const friends = [...v.bonds.entries()]
+      .filter(([o, b]) => o.alive && b >= 25 && !v.isFamily(o))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+    for (const [o, b] of friends) {
+      const label = this.scene.canCourt(v, o) && b >= 35 ? '💕 Đang tìm hiểu' : b >= 60 ? 'Bạn thân' : 'Bạn bè';
+      rows.push(row(label, o));
+    }
+    if (v.needsHome) rows.push('<li class="note">🏠 Đang chờ làng dựng nhà riêng</li>');
+    return rows.join('') || '<li class="note">Chưa thân với ai — tối ra bếp lửa trò chuyện sẽ có bạn</li>';
+  }
+
   private updateDetail() {
     const v = this.detailFor;
     if (!v) return;
     const s = this.scene.state;
+    q(this.detail, '.avatar').textContent = v.avatar;
+    q(this.detail, '.dname').textContent = v.name;
+    q(this.detail, '.drole').textContent = v.role;
     q(this.detail, '.crown').textContent = this.scene.chief() === v ? '👑' : '';
+    q(this.detail, '.dream-wrap').hidden = v.stage === 'be';
+    q(this.detail, '.rels').innerHTML = this.relations(v);
     q(this.detail, '.dstatus').textContent = `${JOBS[v.activity].icon} ${v.status}`;
     q(this.detail, '.dthought').textContent = v.thought ? `💭 “${v.thought}”` : '💭 …';
     q(this.detail, '.dneeds .hunger i').style.width = `${v.hunger}%`;
@@ -464,8 +644,10 @@ export class Hud {
     this.clockIcon.textContent = h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
     for (const b of this.speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === s.speed);
 
+    this.syncCards();
     const chief = this.scene.chief();
     for (const [v, c] of this.cards) {
+      if (c.avatar.textContent !== v.avatar) c.avatar.textContent = v.avatar;
       c.name.textContent = `${v.name}${chief === v ? ' 👑' : ''}`;
       c.job.textContent = `${JOBS[v.activity].icon} ${JOBS[v.activity].name}`;
       c.status.textContent = v.thought ? `💭 ${v.thought}` : v.status;
