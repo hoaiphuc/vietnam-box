@@ -25,7 +25,8 @@ export type SfxId =
   | 'select'
   | 'pray'
   | 'bless'
-  | 'thunder';
+  | 'thunder'
+  | 'drum';
 
 interface Recipe {
   /** Lượng vang (reverb). */
@@ -213,6 +214,22 @@ export const SFX: Record<SfxId, Recipe> = {
     },
   },
   /** Sấm rền xa xa. */
+  /** Trống hội: "tùng… tùng tùng… tùng". */
+  drum: {
+    rev: 0.35,
+    gap: 1,
+    play: (e, o, t) => {
+      for (const [dt, k] of [
+        [0, 1],
+        [0.45, 0.8],
+        [0.68, 0.85],
+        [1.15, 1],
+      ]) {
+        e.tone(o, { f: 105 * k, f2: 52, t: t + dt, dur: 0.35, peak: 1 });
+        e.noise(o, { t: t + dt, dur: 0.08, peak: 0.35, filter: { type: 'lowpass', f: 600 } });
+      }
+    },
+  },
   thunder: {
     rev: 0.4,
     gap: 2,

@@ -1,4 +1,17 @@
-import { BUILD_ORDER, BUILDINGS, JOB_ORDER, JOBS, RES_ORDER, RESOURCES, type BuildingId, type JobId, type ResKey } from '../data';
+import {
+  BUILD_ORDER,
+  BUILDINGS,
+  JOB_NEEDS,
+  JOB_ORDER,
+  JOBS,
+  RES_NEEDS,
+  RES_ORDER,
+  RESOURCES,
+  type BuildingId,
+  type JobId,
+  type ResKey,
+} from '../data';
+import { DISC_ORDER, DISCOVERIES, ERAS } from '../discoveries';
 import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
 import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
 import type { GameScene } from '../scenes/GameScene';
@@ -48,6 +61,10 @@ export class Hud {
   private historyFull: HTMLElement;
   private historyOverlay: HTMLElement;
   private historyKey = '';
+  private eraChip!: HTMLElement;
+  private clockTags!: HTMLElement;
+  private discKey = '-';
+  private bannerTimer = 0;
   private detail: HTMLElement;
   private detailFor: Villager | null = null;
   private journalKey = '';
@@ -62,7 +79,8 @@ export class Hud {
     this.root.innerHTML = `
       <div class="topbar panel">
         <div class="brand">🌾 <span>Làng Quê</span></div>
-        <div class="clock"><span class="clock-icon">☀️</span><span class="clock-text"></span></div>
+        <div class="clock"><span class="clock-icon">☀️</span><span class="clock-text"></span><span class="clock-tags"></span></div>
+        <button class="era-chip" title="Thời kỳ của làng — nhấp để xem các phát kiến"></button>
         <div class="phuc" title="Điểm Phúc của Thành Hoàng — có được khi dân làng vui vẻ và thắp hương ở miếu">
           <span>🙏</span><div class="phuc-bar"><i></i></div><b class="phuc-text">0</b>
         </div>
@@ -103,6 +121,13 @@ export class Hud {
           <div class="tree-body"></div>
         </div>
       </div>
+      <div class="tree-overlay disc-overlay" hidden>
+        <div class="tree-card panel disc-card">
+          <div class="tree-head"><h3>💡 Phát kiến của làng</h3><button class="close disc-close" title="Đóng">✕</button></div>
+          <div class="tree-body disc-body"></div>
+        </div>
+      </div>
+      <div class="banner" hidden><span class="bn-icon"></span><div><b class="bn-title"></b><p class="bn-text"></p></div></div>
       <div class="tree-overlay hist-overlay" hidden>
         <div class="tree-card panel">
           <div class="tree-head"><h3>📜 Sử làng <small class="hcount"></small></h3><button class="close hist-close" title="Đóng">✕</button></div>
@@ -217,6 +242,18 @@ export class Hud {
     q(this.root, '.hist-close').addEventListener('click', () => (this.historyOverlay.hidden = true));
     this.historyOverlay.addEventListener('click', (e) => {
       if (e.target === this.historyOverlay || goTo(e)) this.historyOverlay.hidden = true;
+    });
+
+    this.eraChip = q(this.root, '.era-chip');
+    this.clockTags = q(this.root, '.clock-tags');
+    const disc = q(this.root, '.disc-overlay');
+    this.eraChip.addEventListener('click', () => {
+      this.renderDiscoveries();
+      disc.hidden = false;
+    });
+    q(this.root, '.disc-close').addEventListener('click', () => (disc.hidden = true));
+    disc.addEventListener('click', (e) => {
+      if (e.target === disc) disc.hidden = true;
     });
 
     const pw = q(this.root, '.powers');
@@ -384,6 +421,57 @@ export class Hud {
     }
   }
 
+  /** Biểu ngữ lớn giữa màn hình khi làng có phát kiến mới. */
+  banner(icon: string, title: string, text: string) {
+    const b = q(this.root, '.banner');
+    q(b, '.bn-icon').textContent = icon;
+    q(b, '.bn-title').textContent = title;
+    q(b, '.bn-text').textContent = text;
+    b.hidden = false;
+    b.classList.remove('show');
+    void b.offsetWidth;
+    b.classList.add('show');
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = window.setTimeout(() => (b.hidden = true), 7000);
+  }
+
+  private renderDiscoveries() {
+    const s = this.scene.state;
+    const era = ERAS[Math.min(ERAS.length - 1, s.discovered.size)];
+    q(this.root, '.disc-body').innerHTML = `
+      <div class="eras">${ERAS.map((e, i) => `<span class="era${i <= s.discovered.size ? ' on' : ''}">${e.icon} ${e.name}</span>`).join('<i>›</i>')}</div>
+      <p class="disc-now">Làng đang ở <b>${era.name.toLowerCase()}</b>. Phát kiến do chính dân làng tìm ra trong lúc sống và làm việc.</p>
+      <ul class="discs">
+        ${DISC_ORDER.map((id) => {
+          const d = DISCOVERIES[id];
+          const got = s.has(id);
+          return `<li class="${got ? 'got' : 'locked'}">
+            <span class="di">${got ? d.icon : '❔'}</span>
+            <div><b>${got ? d.name : '???'}</b><p>${got ? d.desc : d.hint}</p></div>
+          </li>`;
+        }).join('')}
+      </ul>`;
+  }
+
+  /** Nghề, công trình, tài nguyên chưa có phát kiến thì ẩn đi. */
+  private updateUnlocks() {
+    const s = this.scene.state;
+    const key = [...s.discovered].join();
+    if (key === this.discKey) return;
+    this.discKey = key;
+    const era = ERAS[Math.min(ERAS.length - 1, s.discovered.size)];
+    this.eraChip.textContent = `${era.icon} ${era.name}`;
+    for (const k of RES_ORDER) {
+      const need = RES_NEEDS[k];
+      this.resEls[k].parentElement!.hidden = !!need && !s.has(need);
+    }
+    for (const [id, btn] of this.buildBtns) {
+      const need = BUILDINGS[id].needs;
+      btn.hidden = !!need && !s.has(need);
+    }
+    if (this.detailFor) this.renderDetail();
+  }
+
   /** Nút thu lại / mở ra trên tiêu đề bảng; nhớ trạng thái cho lần chơi sau. */
   private setupFolds() {
     let saved: Record<string, boolean> = {};
@@ -497,7 +585,7 @@ export class Hud {
       <div class="dream-wrap">
       <h4>Báo mộng <small>— ${DREAM_COST} 🙏, gợi ý một việc, nghe hay không là tuỳ họ</small></h4>
       <div class="jobs">
-        ${JOB_ORDER.map(
+        ${JOB_ORDER.filter((j) => !JOB_NEEDS[j] || this.scene.state.has(JOB_NEEDS[j]!)).map(
           (j) => `
           <button class="job" data-job="${j}" title="${JOBS[j].desc}">
             <span class="ji">${JOBS[j].icon}</span>
@@ -640,8 +728,17 @@ export class Hud {
     const hh = Math.floor(h);
     const mm = Math.floor(((h - hh) * 60) / 10) * 10;
     const part = h < 5 ? 'Đêm' : h < 11 ? 'Sáng' : h < 13 ? 'Trưa' : h < 17.5 ? 'Chiều' : h < 20 ? 'Chạng vạng' : 'Đêm';
-    this.clockText.textContent = `Ngày ${s.day} · ${pad(hh)}:${pad(mm)} · ${part}`;
+    this.clockText.textContent = `Ngày ${s.day} · ${pad(hh)}:${pad(mm)}`;
+    this.clockText.parentElement!.title = part;
     this.clockIcon.textContent = h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
+    const tags: string[] = [];
+    if (s.raining) tags.push('🌧️ Mưa');
+    else if (s.drought) tags.push('☀️ Hạn hán');
+    if (this.scene.marketOn()) tags.push('🏮 Phiên chợ');
+    if (this.scene.festivalOn()) tags.push('🥁 Hội làng');
+    const tagText = tags.length ? ` · ${tags.join(' · ')}` : '';
+    if (this.clockTags.textContent !== tagText) this.clockTags.textContent = tagText;
+    this.updateUnlocks();
     for (const b of this.speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === s.speed);
 
     this.syncCards();

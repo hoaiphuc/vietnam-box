@@ -1169,3 +1169,165 @@ h4 {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------- phần 4: thời kỳ, phát kiến */
+
+.clock-tags {
+  margin-left: 2px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.era-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff4dc;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.era-chip:hover {
+  border-color: var(--accent);
+}
+
+.banner {
+  position: absolute;
+  top: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 12px 18px;
+  background: linear-gradient(180deg, #fff8e6, #ffeec4);
+  border: 2px solid var(--accent-soft);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+.banner.show {
+  animation: banner-in 7s ease forwards;
+}
+
+@keyframes banner-in {
+  0% { opacity: 0; transform: translate(-50%, -16px) scale(0.96); }
+  6% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  88% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.bn-icon {
+  font-size: 34px;
+}
+
+.bn-title {
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.bn-text {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.disc-card {
+  width: min(560px, 100%);
+}
+
+.eras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.eras i {
+  color: var(--ink-soft);
+  font-style: normal;
+}
+
+.era {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.era.on {
+  background: #fff4dc;
+  border-color: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.disc-now {
+  font-size: 12.5px;
+  margin: 10px 0;
+}
+
+.discs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.discs li {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.discs li.locked {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-soft);
+}
+
+.discs .di {
+  font-size: 24px;
+}
+
+.discs p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Thanh trên cùng gọn lại khi có nhiều tài nguyên. */
+.topbar {
+  gap: 10px;
+}
+
+.resources {
+  gap: 4px;
+}
+
+.resources .chip {
+  padding: 2px 7px;
+  gap: 3px;
+  font-size: 12.5px;
+}
+
+.resources .chip b {
+  min-width: 14px;
+}
+
+
+@media (max-width: 1600px) {
+  .brand span {
+    display: none;
+  }
+}

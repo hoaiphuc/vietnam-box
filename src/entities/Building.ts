@@ -18,6 +18,13 @@ export class Building {
   private windows: Phaser.GameObjects.Image[] = [];
   private fx: Phaser.GameObjects.GameObject[] = [];
 
+  /** Ruộng lúa: 0 trống (chờ cấy) · 1 mạ · 2 lúa xanh · 3 lúa chín (chờ gặt). */
+  crop = 0;
+  /** Lúa lớn tới đâu (0..1) khi đang ở giai đoạn 1–2. */
+  growth = 0;
+  /** Người đang làm ở đây (ruộng) — tránh hai người cùng tới. */
+  reservedBy: object | null = null;
+
   constructor(
     private scene: GameScene,
     readonly id: BuildingId,
@@ -31,8 +38,8 @@ export class Building {
     this.sprite = scene.add
       .image(this.px, this.py + this.def.oy, this.def.tex)
       .setOrigin(0.5, 1)
-      .setDepth(this.py);
-    this.bar = scene.add.graphics().setDepth(this.py + 1);
+      .setDepth(this.def.flat ? -400 : this.py);
+    this.bar = scene.add.graphics().setDepth(this.def.flat ? -399 : this.py + 1);
     if (this.built) this.activate();
     else if (this.planned) this.sprite.setAlpha(0.4).setTint(0x9fc8ff);
     else this.sprite.setAlpha(0.45).setTint(0xcbb48a);
@@ -68,6 +75,45 @@ export class Building {
     this.progress += amount;
     if (this.progress >= this.def.work) this.complete();
     this.drawBar();
+  }
+
+  // ------------------------------------------------------------ ruộng lúa
+
+  get isField() {
+    return this.id === 'ruong';
+  }
+
+  /** Ruộng đang cần người: trống thì cấy, chín thì gặt. */
+  get needsFarmer() {
+    return this.isField && this.built && (this.crop === 0 || this.crop === 3);
+  }
+
+  plant() {
+    this.crop = 1;
+    this.growth = 0;
+    this.sprite.setTexture('ruong1');
+  }
+
+  /** Lúa lớn lên; `mul` theo thời tiết. Trả về true khi vừa chín. */
+  grow(dt: number, dur: number, mul: number) {
+    if (this.crop !== 1 && this.crop !== 2) return false;
+    this.growth = Math.min(1, this.growth + (dt / dur) * mul);
+    if (this.crop === 1 && this.growth >= 0.45) {
+      this.crop = 2;
+      this.sprite.setTexture('ruong2');
+    }
+    if (this.growth >= 1) {
+      this.crop = 3;
+      this.sprite.setTexture('ruong3');
+      return true;
+    }
+    return false;
+  }
+
+  harvest() {
+    this.crop = 0;
+    this.growth = 0;
+    this.sprite.setTexture('ruong0');
   }
 
   destroy() {
@@ -169,6 +215,32 @@ export class Building {
             .setDepth(50001),
         );
       }
+    }
+    const glowAt = (x: number, y: number, tint: number, scale: number) =>
+      this.windows.push(
+        s.add.image(x, y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(tint).setScale(scale).setAlpha(0).setDepth(50001),
+      );
+    if (this.id === 'lo') {
+      const top = this.py + this.def.oy - 48;
+      this.fx.push(
+        s.add
+          .particles(this.px + 8, top + 2, 'smoke', {
+            lifespan: 2600,
+            frequency: 520,
+            speedY: { min: -24, max: -12 },
+            speedX: { min: -2, max: 6 },
+            scale: { start: 0.4, end: 1.6 },
+            alpha: { start: 0.3, end: 0 },
+          })
+          .setDepth(this.py + 2),
+      );
+      glowAt(this.px, top + 42, 0xff7a2a, 0.7);
+    }
+    if (this.id === 'cho') glowAt(this.px, this.py + this.def.oy - 46, 0xff5a3a, 0.6);
+    if (this.id === 'dinh') {
+      const top = this.py + this.def.oy - 84;
+      glowAt(this.px - 18, top + 58, 0xffb050, 0.5);
+      glowAt(this.px + 18, top + 58, 0xffb050, 0.5);
     }
     if (this.id === 'mieu') {
       const top = this.py + this.def.oy - 57;

@@ -59,6 +59,8 @@ const NEED_LINES: Record<JobId, string> = {
   san: 'Cả nhà cần thịt, vào rừng săn thôi',
   ca: 'Kho sắp hết đồ ăn, ra sông kiếm con cá',
   hai: 'Sắp hết cái ăn rồi, đi hái chuối',
+  cay: 'Lúa chín vàng đồng rồi, ra gặt kẻo rụng',
+  nung: 'Làng cần thêm chum vại, nhóm lò nung gốm thôi',
   nau: 'Thịt cá sống còn nhiều, đem nướng kẻo hỏng',
   xay: 'Phải dựng cho xong công trình đã',
   nghi: 'Mệt quá, phải nghỉ một lát',
@@ -69,6 +71,8 @@ const LIKE_LINES: Record<JobId, string> = {
   san: 'Đi săn mới thấy hào hứng!',
   ca: 'Ngồi câu cá là vui nhất đời',
   hai: 'Đi hái lượm, ngắm cây cỏ thích ghê',
+  cay: 'Ra đồng lội ruộng, thơm mùi lúa non',
+  nung: 'Nặn đất sét thành chum thành vại, vui tay ghê',
   nau: 'Nướng đồ ăn cho cả nhà là vui nhất',
   xay: 'Thích tự tay dựng nhà dựng cửa',
   nghi: 'Thong thả chút cho đời thêm vui',
@@ -79,6 +83,8 @@ const CASUAL_LINES: Record<JobId, string> = {
   san: 'Thử vào rừng xem có con gì không',
   ca: 'Ra sông thả câu chơi',
   hai: 'Đi xem chuối chín chưa',
+  cay: 'Ra thăm đồng một chút',
+  nung: 'Nung thêm mẻ gốm',
   nau: 'Nướng thêm ít đồ ăn',
   xay: 'Phụ một tay xây dựng',
   nghi: 'Hôm nay thong thả một chút',
@@ -101,6 +107,10 @@ const RELAX_LINES = ['Ngồi hóng gió bờ tre 🎋', 'Ngắm mây trôi ☁�
 const CHILD_LINES = ['Thả diều 🪁', 'Đuổi bắt chuồn chuồn', 'Nhảy dây', 'Hái hoa ven đường 🌼'];
 const BABY_LINES = ['Bập bẹ nói theo 👶', 'Bò quanh sân', 'Ngủ ngon trong nôi', 'Cười khanh khách'];
 const ELDER_LINES = ['Ngồi kể chuyện ngày xưa', 'Nhâm nhi chén trà ☕', 'Ngắm con cháu chơi đùa', 'Ngồi têm trầu 🍃'];
+const FESTIVAL_LINES = ['Hát quan họ 🎶', 'Đánh đu ngày hội', 'Xem kéo co 💪', 'Đánh trống hội 🥁', 'Thả đèn lồng 🏮', 'Xem múa lân 🦁'];
+const FESTIVAL_CHAT = ['Hội năm nay vui quá!', 'Trống hội rộn ràng ghê', 'Đèn lồng đẹp thật', 'Mong năm nào cũng được mùa thế này'];
+const MARKET_LINES = ['Đi chợ phiên 🏮', 'Mặc cả mớ rau', 'Ngắm hàng làng bên', 'Mua cho con cái kẹo'];
+const MARKET_CHAT = ['Chum này đẹp ghê!', 'Bớt chút đi bà ơi', 'Hàng làng bên lạ quá', 'Phiên chợ hôm nay đông thật'];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
@@ -721,19 +731,21 @@ export class Villager {
     const h = s.state.hour;
     const evening = h >= 18 && h < 21;
     const fireEvening = evening && !!s.nearestBuilt('lua', this.x, this.y);
+    const festive = s.festivalOn();
     const opts: Option[] = [];
     for (const j of ACT_ORDER) {
       if (!canDo(this.stage, this.age, j)) continue;
-      const n = j === 'nghi' ? this.restNeed(fireEvening) : j === 'le' ? this.prayNeed() : need[j];
+      const n = j === 'nghi' ? this.restNeed(fireEvening) + (festive ? 0.7 : 0) + (s.marketOn() ? 0.2 : 0) : j === 'le' ? this.prayNeed() : need[j];
       if (n < 0) continue;
       const aff = this.affinity(j);
       let score = n * 0.7 + aff * 0.5;
       if (SKILL_JOBS.includes(j)) {
         score += this.skills[j].level * 0.03;
         const others = s.villagers.filter((o) => o !== this && o.activity === j && !o.asleep).length;
-        score -= others * (j === 'nau' ? 0.5 : 0.18);
+        score -= others * (j === 'nau' || j === 'nung' ? 0.5 : 0.18);
         if (evening) score *= 0.6;
-      } else if (j === 'nghi' && !fireEvening) {
+        if (festive) score *= 0.3;
+      } else if (j === 'nghi' && !fireEvening && !festive) {
         score -= this.boredom() * 0.8;
       }
       const dreamed = this.intent?.job === j;
@@ -771,6 +783,7 @@ export class Villager {
 
   private reasonFor(j: JobId, need: number, aff: number, dreamed: boolean, fireEvening: boolean) {
     if (dreamed) return `Nhớ lời báo mộng, đi ${JOBS[j].name.toLowerCase()} thôi`;
+    if (j === 'nghi' && this.scene.festivalOn()) return 'Hội làng mở rồi, ra đình trẩy hội thôi! 🥁';
     if (j === 'nghi' && fireEvening) return 'Tối rồi, ra ngồi bên bếp lửa với cả nhà';
     if (j !== 'nghi' && this.boredom() > 0.25) return 'Ngồi mãi cũng chán, đi làm gì đó thôi';
     if (need >= 0.6) return NEED_LINES[j];
@@ -814,8 +827,12 @@ export class Villager {
         return yield* this.fish();
       case 'hai':
         return yield* this.gather();
+      case 'cay':
+        return yield* this.farm();
       case 'nau':
         return yield* this.cook();
+      case 'nung':
+        return yield* this.pottery();
       case 'xay':
         return yield* this.build();
       case 'le':
@@ -894,8 +911,20 @@ export class Villager {
     const s = this.scene;
     const h = s.state.hour;
     const fire = s.nearestBuilt('lua', this.x, this.y);
-    const fireEvening = !!fire && h >= 18 && h < 21;
-    if (fire && fireEvening) {
+    const dinh = s.festivalOn() ? s.nearestBuilt('dinh', this.x, this.y) : null;
+    const cho = s.marketOn() && this.stage !== 'be' && Math.random() < 0.6 ? s.nearestBuilt('cho', this.x, this.y) : null;
+    const fireEvening = !dinh && !!fire && h >= 18 && h < 21;
+    // Ngày hội / phiên chợ: tụ tập đông, trò chuyện rôm rả hơn.
+    const crowd = dinh ?? cho;
+    if (crowd) {
+      this.status = dinh ? 'Ra đình trẩy hội' : 'Đi chợ phiên';
+      const tx = crowd.tx + Phaser.Math.Between(-2, crowd.def.w + 1);
+      const ty = crowd.ty + crowd.def.h + Phaser.Math.Between(0, 2);
+      const ok = s.isFree(tx, ty) && (yield* this.walkTo(tx, ty, 0.85));
+      if (ok) this.face(crowd.px);
+      const lines = dinh ? FESTIVAL_LINES : MARKET_LINES;
+      this.status = lines[Math.floor(Math.random() * lines.length)];
+    } else if (fire && fireEvening) {
       this.status = 'Ra ngồi bên bếp lửa';
       const tx = fire.tx + Phaser.Math.Between(-2, 2);
       const ty = fire.ty + Phaser.Math.Between(-1, 2);
@@ -916,12 +945,13 @@ export class Villager {
 
     let t = 0;
     let chat = 2 + Math.random() * 3;
-    const dur = fireEvening ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
+    const dur = fireEvening || crowd ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
     while (t < dur) {
       const dt: number = yield;
       t += dt;
       this.relaxing = true;
-      this.byFire = fireEvening;
+      this.byFire = fireEvening || !!crowd;
+      if (dinh) this.addMood(dt * 0.4);
       this.idleTime += dt;
       this.energy = Math.min(100, this.energy + dt * ENERGY_DRAIN * 1.5);
       if ((chat -= dt) <= 0) {
@@ -932,10 +962,10 @@ export class Villager {
         if (friend && Math.random() < 0.6 && this.stage !== 'be') {
           // Hai người độc thân đã thân nhau thì nói chuyện ngọt ngào hơn.
           const sweet = s.canCourt(this, friend) && this.bond(friend) >= 35;
-          const lines = sweet ? SWEET_LINES : CHAT_LINES;
+          const lines = sweet ? SWEET_LINES : dinh ? FESTIVAL_CHAT : cho ? MARKET_CHAT : CHAT_LINES;
           this.say(lines[Math.floor(Math.random() * lines.length)], 3500);
           this.addMood(2);
-          s.addBond(this, friend, fireEvening ? 7 : 4);
+          s.addBond(this, friend, dinh ? 10 : fireEvening || cho ? 7 : 4);
           s.tryMarry(this, friend);
         }
       }
@@ -1017,6 +1047,7 @@ export class Villager {
       this.scene.sfx('pick', node.x, node.y);
       this.carry = { res: 'chuoi', amount: 3 + Math.floor(this.skills.hai.level / 3) };
       this.gainXp('hai', 3);
+      this.scene.notice(this, 'hai');
     } finally {
       if (node.reservedBy === this) node.reservedBy = null;
     }
@@ -1052,6 +1083,7 @@ export class Villager {
         this.carry = { res: 'ca', amount: caught };
         this.scene.recordWork(this.x, this.y);
       }
+      this.scene.notice(this, 'ca');
       if (caught >= 3) {
         this.addMood(5);
         this.say('Hôm nay cá cắn câu nhiều ghê! 🐟');
@@ -1177,24 +1209,87 @@ export class Villager {
     yield* this.wait(2.5);
   }
 
+  private *farm(): Beh {
+    const s = this.scene;
+    const f = s.findField(this.x, this.y);
+    if (!f) return yield* this.idle('Lúa đang lớn, chờ ngày gặt 🌾');
+    f.reservedBy = this;
+    try {
+      const reap = f.crop === 3;
+      this.status = reap ? 'Ra đồng gặt lúa' : 'Ra đồng cấy lúa';
+      if (!(yield* this.walkTo(f.entrance.x, f.entrance.y))) return;
+      this.face(f.px);
+      this.status = reap ? 'Đang gặt lúa 🌾' : 'Đang cấy mạ 🌱';
+      this.holding = reap ? '🌾' : '🌱';
+      if (!(yield* this.workFor((reap ? 6 : 5) / this.eff('cay'), 'rustle', 0.6))) return;
+      s.recordWork(f.px, f.py);
+      if (reap) {
+        f.harvest();
+        s.state.stats.harvested++;
+        this.carry = { res: 'thoc', amount: 5 + Math.floor(this.skills.cay.level / 2) };
+        this.gainXp('cay', 5);
+        this.addMood(3);
+        if (s.state.stats.harvested === 1) {
+          this.say('Mùa gặt đầu tiên! Hạt thóc chắc mẩy ghê 🌾', 5000);
+          s.state.log(`🌾 ${this.name} gặt mẻ lúa đầu tiên của làng`, { x: f.px, y: f.py });
+        }
+      } else {
+        f.plant();
+        this.gainXp('cay', 3);
+      }
+      s.notice(this, 'cay');
+    } finally {
+      this.holding = null;
+      if (f.reservedBy === this) f.reservedBy = null;
+    }
+  }
+
+  private *pottery(): Beh {
+    const s = this.scene;
+    const kiln = s.nearestBuilt('lo', this.x, this.y);
+    if (!kiln) return yield* this.idle('Cần có Lò gốm');
+    if (s.state.res.go < 1) return yield* this.idle('Hết củi để nung gốm');
+    this.status = 'Ra lò gốm';
+    const stand = s.standNear(kiln.tx, kiln.ty, this.x, this.y);
+    if (!stand || !(yield* this.walkTo(stand.x, stand.y))) return;
+    this.face(kiln.px);
+    try {
+      this.status = 'Nặn đất sét 🏺';
+      this.holding = '🤲';
+      if (!(yield* this.workFor(5 / this.eff('nung'), 'rustle', 0.9))) return;
+      if (s.state.res.go < 1) return;
+      s.state.res.go--;
+      this.status = 'Nung gốm trong lò 🔥';
+      this.holding = '🔥';
+      if (!(yield* this.workFor(4 / this.eff('nung'), 'sizzle', 0.7))) return;
+      const n = 1 + (Math.random() < this.skills.nung.level * 0.08 ? 1 : 0);
+      s.state.stats.pottery += n;
+      this.carry = { res: 'gom', amount: n };
+      this.gainXp('nung', 4);
+      if (s.state.stats.pottery === n) {
+        this.say('Mẻ gốm đầu tiên ra lò, đẹp quá! 🏺', 5000);
+        s.state.log(`🏺 ${this.name} nung được mẻ gốm đầu tiên của làng`, { x: kiln.px, y: kiln.py });
+      }
+    } finally {
+      this.holding = null;
+    }
+  }
+
   private *cook(): Beh {
     const st = this.scene.state.res;
     const fire = this.scene.nearestBuilt('lua', this.x, this.y);
     if (!fire) return yield* this.idle('Cần có Đống lửa để nướng 🔥');
-    if (st.thit + st.ca <= 0) return yield* this.idle('Chờ có thịt, cá để nướng');
+    if (st.thit + st.ca + st.thoc <= 0) return yield* this.idle('Chờ có thịt, cá, thóc để nấu');
 
     const store = this.scene.nearestStorage(this.x, this.y);
-    this.status = 'Ra kho lấy thịt cá';
+    this.status = 'Ra kho lấy đồ nấu';
     if (store) yield* this.walkTo(store.entrance.x, store.entrance.y);
     const raw: ResKey[] = [];
     while (raw.length < 3) {
-      if (st.thit > 0) {
-        st.thit--;
-        raw.push('thit');
-      } else if (st.ca > 0) {
-        st.ca--;
-        raw.push('ca');
-      } else break;
+      const k = (['thit', 'ca', 'thoc'] as const).find((r) => st[r] > 0);
+      if (!k) break;
+      st[k]--;
+      raw.push(k);
     }
     if (!raw.length) return;
     try {
@@ -1205,9 +1300,10 @@ export class Villager {
       this.face(fire.px);
       while (raw.length) {
         this.holding = RESOURCES[raw[0]].icon;
-        this.status = raw[0] === 'thit' ? 'Đang nướng thịt 🍖' : 'Đang nướng cá 🐟';
+        this.status = raw[0] === 'thit' ? 'Đang nướng thịt 🍖' : raw[0] === 'ca' ? 'Đang nướng cá 🐟' : 'Đang thổi cơm 🍚';
         if (!(yield* this.workFor(4 / this.eff('nau'), 'sizzle', 0.5))) return;
-        const out: ResKey = raw.shift() === 'thit' ? 'thitNuong' : 'caNuong';
+        const r = raw.shift();
+        const out: ResKey = r === 'thit' ? 'thitNuong' : r === 'ca' ? 'caNuong' : 'com';
         const n = Math.random() < this.skills.nau.level * 0.05 ? 2 : 1;
         this.scene.state.add(out, n);
         this.scene.state.stats.cooked += n;

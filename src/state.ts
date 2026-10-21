@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { DAY_LENGTH, START_HOUR } from './config';
 import type { BuildingId, ResKey } from './data';
+import type { DiscId } from './discoveries';
 
 export type Cost = Partial<Record<ResKey, number>>;
 
@@ -11,7 +12,13 @@ export interface HistoryEntry {
 }
 
 export class GameState {
-  res: Record<ResKey, number> = { go: 12, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0 };
+  res: Record<ResKey, number> = { go: 12, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0 };
+  /** Những phát kiến làng đã tìm ra. */
+  discovered = new Set<DiscId>();
+  /** Trời hạn hán: lúa lớn chậm, dân hay cầu mưa. */
+  drought = false;
+  /** Lần cuối trời mưa (giây game). */
+  lastRain = 0;
   /** Thời gian game đã trôi qua (giây game). */
   time = 0;
   speed = 1;
@@ -22,7 +29,9 @@ export class GameState {
     fish: 0,
     cooked: 0,
     wishes: 0,
-    built: { lua: 0, kho: 0, nha: 0, mieu: 0 } as Record<BuildingId, number>,
+    harvested: 0,
+    pottery: 0,
+    built: { lua: 0, kho: 0, nha: 0, mieu: 0, ruong: 0, lo: 0, cho: 0, dinh: 0 } as Record<BuildingId, number>,
   };
   /** Điểm Phúc của Thành Hoàng — dùng cho quyền năng và báo mộng. */
   phuc = 30;
@@ -35,6 +44,19 @@ export class GameState {
   }
   get fishBoost() {
     return this.time < this.fishUntil;
+  }
+  has(d: DiscId) {
+    return this.discovered.has(d);
+  }
+  /** Phiên chợ: ngày chẵn, 7–12 giờ. */
+  get marketOpen() {
+    const h = this.hour;
+    return this.day % 2 === 0 && h >= 7 && h < 12;
+  }
+  /** Hội làng: bốn ngày một lần, 17–21 giờ. */
+  get festival() {
+    const h = this.hour;
+    return this.day % 4 === 0 && h >= 17 && h < 21;
   }
 
   addPhuc(n: number) {
