@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DAY_LENGTH, START_HOUR } from './config';
+import { DAY_LENGTH, MONTHS_PER_YEAR, START_HOUR } from './config';
 import type { BuildingId, ResKey } from './data';
 import type { DiscId } from './discoveries';
 
@@ -51,15 +51,20 @@ export class GameState {
   has(d: DiscId) {
     return this.discovered.has(d);
   }
-  /** Phiên chợ: ngày chẵn, 7–12 giờ. */
+  /** Phiên chợ: tháng chẵn, 7–12 giờ. */
   get marketOpen() {
     const h = this.hour;
-    return this.day % 2 === 0 && h >= 7 && h < 12;
+    return this.month % 2 === 0 && h >= 7 && h < 12;
   }
-  /** Hội làng: bốn ngày một lần, 17–21 giờ. */
+  /** Hội làng: bốn tháng một lần — tháng Hai, tháng Sáu, tháng Mười — 17–21 giờ. */
   get festival() {
     const h = this.hour;
-    return this.day % 4 === 0 && h >= 17 && h < 21;
+    return this.month % 4 === 2 && h >= 17 && h < 21;
+  }
+  /** Tết Trung thu: rằm tháng Tám mỗi năm, 18–21 giờ. */
+  get midAutumn() {
+    const h = this.hour;
+    return this.monthOfYear === 8 && h >= 18 && h < 21;
   }
 
   addPhuc(n: number) {
@@ -76,15 +81,29 @@ export class GameState {
   get totalHours() {
     return START_HOUR + (this.time / DAY_LENGTH) * 24;
   }
-  get day() {
+  /** Số tháng kể từ khi lập làng, bắt đầu từ 1 (mỗi vòng ngày đêm là một tháng). */
+  get month() {
     return Math.floor(this.totalHours / 24) + 1;
+  }
+  /** Tháng trong năm, 1..12. */
+  get monthOfYear() {
+    return ((this.month - 1) % MONTHS_PER_YEAR) + 1;
+  }
+  /** Năm thứ mấy kể từ khi lập làng, bắt đầu từ 1. */
+  get year() {
+    return Math.floor((this.month - 1) / MONTHS_PER_YEAR) + 1;
   }
   get hour() {
     return this.totalHours % 24;
   }
-  /** Ngày thứ mấy của một thời điểm game. */
-  dayAt(t: number) {
+  /** Tháng thứ mấy (kể từ khi lập làng) của một thời điểm game. */
+  monthAt(t: number) {
     return Math.floor((START_HOUR + (t / DAY_LENGTH) * 24) / 24) + 1;
+  }
+
+  /** "Tháng 8 · Năm 2" cho một số tháng kể từ khi lập làng. */
+  dateLabel(m: number) {
+    return `Tháng ${((m - 1) % MONTHS_PER_YEAR) + 1} · Năm ${Math.floor((m - 1) / MONTHS_PER_YEAR) + 1}`;
   }
 
   /** "07:30" cho một thời điểm game. */
@@ -95,9 +114,10 @@ export class GameState {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }
 
-  /** "N2 · 07:30" cho một thời điểm game. */
+  /** "T8/N2 · 07:30" cho một thời điểm game. */
   stamp(t: number) {
-    return `N${this.dayAt(t)} · ${this.clockAt(t)}`;
+    const m = this.monthAt(t);
+    return `T${((m - 1) % MONTHS_PER_YEAR) + 1}/N${Math.floor((m - 1) / MONTHS_PER_YEAR) + 1} · ${this.clockAt(t)}`;
   }
 
   isSleepTime() {

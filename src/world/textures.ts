@@ -640,6 +640,62 @@ function drawLantern(c: Ctx) {
   line(c, 8, 17, 8, 21, '#e8b13a', 1);
 }
 
+/** Đèn ông sao năm cánh trên cán tre. */
+function drawStarLantern(c: Ctx) {
+  line(c, 9, 14, 9, 30, '#8a6a3a', 1.6);
+  const pts: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 ? 3.6 : 8.5;
+    pts.push(9 + Math.cos(a) * r, 9 + Math.sin(a) * r);
+  }
+  poly(c, pts, '#e8b13a');
+  poly(c, pts.map((v) => 9 + (v - 9) * 0.78), '#d63a2a');
+  circle(c, 9, 9, 1.8, '#ffe27a');
+  for (const x of [5, 13]) line(c, x, 14, x, 19, '#e8b13a', 0.9);
+}
+
+/** Mâm cỗ trông trăng: bánh nướng, bánh dẻo, bưởi, nải chuối. */
+function drawFeast(c: Ctx) {
+  ell(c, 22, 22, 20, 4, 'rgba(0,0,0,0.22)');
+  ell(c, 22, 17, 19, 6.5, '#b8862e');
+  ell(c, 22, 16, 17.5, 5.5, '#e2b84a');
+  // nải chuối
+  for (let i = 0; i < 4; i++) ell(c, 10 + i * 2.2, 13 - i * 0.4, 1.6, 4.5, '#f2d24a', -0.5);
+  // bưởi
+  circle(c, 22, 10, 5.5, '#7fae4a');
+  circle(c, 20.5, 8.5, 1.8, '#a3c96a');
+  line(c, 22, 4.5, 23, 2.5, '#5a3b22', 1);
+  // bánh nướng, bánh dẻo
+  circle(c, 31, 14, 3.6, '#b9772e');
+  circle(c, 31, 14, 2.2, '#d49a4a');
+  circle(c, 15, 17.5, 3.2, '#f3eedf');
+  circle(c, 15, 17.5, 1.8, '#e3dcc6');
+  circle(c, 27, 18.5, 3.2, '#b9772e');
+  circle(c, 27, 18.5, 1.9, '#d49a4a');
+}
+
+/** Con lân: đầu đỏ bờm vàng, thân vải sọc kéo phía sau. */
+function drawLion(c: Ctx) {
+  ell(c, 24, 31, 18, 3, 'rgba(0,0,0,0.22)');
+  // thân vải và chân người múa
+  for (let i = 0; i < 4; i++) rrect(c, 20 + i * 5, 12 + i * 0.8, 6, 13, 3, i % 2 ? '#e8b13a' : '#d63a2a');
+  rrect(c, 38, 14, 6, 9, 3, '#d63a2a');
+  for (const x of [22, 26, 34, 38]) rrect(c, x, 24, 3, 7, 1, '#3a2a1a');
+  // đầu lân
+  circle(c, 13, 13, 10, '#e8b13a');
+  circle(c, 13, 13.5, 8, '#d63a2a');
+  rrect(c, 5, 16, 16, 5, 2, '#f3eedf');
+  for (let x = 7; x < 20; x += 3) line(c, x, 16, x, 21, '#c9b89a', 0.8);
+  circle(c, 9.5, 10.5, 2.6, '#fff');
+  circle(c, 16.5, 10.5, 2.6, '#fff');
+  circle(c, 9.5, 11, 1.3, '#1d1a17');
+  circle(c, 16.5, 11, 1.3, '#1d1a17');
+  circle(c, 13, 4.5, 2.2, '#3f8a3f');
+  line(c, 6, 7, 3, 3, '#ffe27a', 1.4);
+  line(c, 20, 7, 23, 3, '#ffe27a', 1.4);
+}
+
 function drawShrine(c: Ctx) {
   ell(c, 20, 54, 19, 3.5, 'rgba(0,0,0,0.2)');
   // nền đá, bậc thềm
@@ -791,6 +847,9 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'cho', 72, 64, drawMarket);
   make(scene, 'dinh', 80, 84, drawCommunalHouse);
   make(scene, 'lantern', 16, 22, drawLantern);
+  make(scene, 'starLantern', 18, 30, drawStarLantern);
+  make(scene, 'feast', 44, 26, drawFeast);
+  make(scene, 'lion', 46, 34, drawLion);
   make(scene, 'flame', 20, 28, drawFlame);
 
   make(scene, 'glow', 128, 128, (c) =>

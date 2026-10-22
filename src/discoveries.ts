@@ -26,13 +26,13 @@ export const DISCOVERIES: Record<DiscId, Discovery> = {
   cho: {
     name: 'Chợ phiên',
     icon: '🏮',
-    desc: 'Cứ hai ngày họp chợ một phiên: người làng bên gánh hàng tới, đổi đồ gốm lấy gỗ và gạo.',
+    desc: 'Cứ hai tháng họp chợ một phiên: người làng bên gánh hàng tới, đổi đồ gốm lấy gỗ và gạo.',
     hint: 'Khi làng đông người và có đồ gốm để bán…',
   },
   dinh: {
     name: 'Đình làng',
     icon: '🏯',
-    desc: 'Nơi cả làng hội họp. Cứ bốn ngày mở hội làng một lần — trống chèo, đèn lồng, cả làng vui chơi.',
+    desc: 'Nơi cả làng hội họp. Cứ bốn tháng mở hội làng một lần — trống chèo, đèn lồng, cả làng vui chơi.',
     hint: 'Khi làng đã đông đúc và có chợ phiên sầm uất…',
   },
 };

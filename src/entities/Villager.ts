@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import type { SfxId } from '../audio/sfx';
-import { DAY_LENGTH, ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE } from '../config';
+import { DAY_LENGTH, ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE, YEAR_LENGTH } from '../config';
 import { ACT_ORDER, JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
 import { canDo, CHILD_AFF, ELDER_AFF, stageOf, type Gender, type Palette, type Stage } from '../life';
 import { WISHES, type WishType } from '../powers';
 import type { FishingSpot, GameScene } from '../scenes/GameScene';
 import { TRAITS, type TraitId } from '../traits';
 import type { NodeKind } from '../world/mapgen';
+import type { Pt } from '../world/pathfinding';
 import { personTexture } from '../world/textures';
 import type { Building } from './Building';
 
@@ -115,7 +116,11 @@ const BABY_LINES = ['Bập bẹ nói theo 👶', 'Bò quanh sân', 'Ngủ ngon t
 const ELDER_LINES = ['Ngồi kể chuyện ngày xưa', 'Nhâm nhi chén trà ☕', 'Ngắm con cháu chơi đùa', 'Ngồi têm trầu 🍃'];
 const FESTIVAL_LINES = ['Hát quan họ 🎶', 'Đánh đu ngày hội', 'Xem kéo co 💪', 'Đánh trống hội 🥁', 'Thả đèn lồng 🏮', 'Xem múa lân 🦁'];
 const FESTIVAL_CHAT = ['Hội năm nay vui quá!', 'Trống hội rộn ràng ghê', 'Đèn lồng đẹp thật', 'Mong năm nào cũng được mùa thế này'];
-const MARKET_LINES = ['Đi chợ phiên 🏮', 'Mặc cả mớ rau', 'Ngắm hàng làng bên', 'Mua cho con cái kẹo'];
+const MOON_LINES = ['Ngắm trăng rằm 🌕', 'Bày mâm cỗ trông trăng 🥮', 'Pha ấm trà ngắm trăng ☕', 'Xem múa lân 🦁', 'Cắt bánh nướng chia cả nhà 🥮'];
+const ELDER_MOON_LINES = ['Kể chuyện chú Cuội cung trăng 🌕', 'Kể sự tích chị Hằng', 'Nhâm nhi trà, ngắm con cháu rước đèn ☕'];
+const MOON_CHAT = ['Trăng rằm năm nay tròn quá!', 'Bánh nướng thơm ghê', 'Kìa, chú Cuội ngồi gốc cây đa', 'Lân múa đẹp thật', 'Trăng sáng thế này, sang năm được mùa'];
+const PARADE_CHAT = ['Tết Trung thu rước đèn đi chơi 🎶', 'Đèn ông sao của tớ đẹp chưa!', 'Tùng dinh dinh, cắc tùng dinh! 🥁', 'Đi phá cỗ thôi các bạn ơi!', 'Em rước đèn này đến cung trăng 🌕'];
+const MARKET_LINES =['Đi chợ phiên 🏮', 'Mặc cả mớ rau', 'Ngắm hàng làng bên', 'Mua cho con cái kẹo'];
 const MARKET_CHAT = ['Chum này đẹp ghê!', 'Bớt chút đi bà ơi', 'Hàng làng bên lạ quá', 'Phiên chợ hôm nay đông thật'];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -155,6 +160,8 @@ export class Villager {
   bonds = new Map<Villager, number>();
   alive = true;
   deathTime = 0;
+  /** Đang cầm đèn ông sao rước đèn đêm Trung thu. */
+  lantern = false;
 
   private lastPray = -DAY_LENGTH;
   private stageKey: Stage | '' = '';
@@ -239,9 +246,9 @@ export class Villager {
 
   // ------------------------------------------------------------ tuổi tác, tên gọi, gia đình
 
-  /** Tuổi (1 ngày game = 1 năm). Người đã mất thì dừng ở tuổi lúc mất. */
+  /** Tuổi (12 tháng = 1 năm). Người đã mất thì dừng ở tuổi lúc mất. */
   get age() {
-    return ((this.alive ? this.scene.state.time : this.deathTime) - this.def.birthTime) / DAY_LENGTH;
+    return ((this.alive ? this.scene.state.time : this.deathTime) - this.def.birthTime) / YEAR_LENGTH;
   }
   get years() {
     return Math.floor(this.age);
@@ -766,7 +773,7 @@ export class Villager {
     const h = s.state.hour;
     const evening = h >= 18 && h < 21;
     const fireEvening = evening && !!s.nearestBuilt('lua', this.x, this.y);
-    const festive = s.festivalOn();
+    const festive = s.festivalOn() || s.midAutumnOn();
     const opts: Option[] = [];
     for (const j of ACT_ORDER) {
       if (!canDo(this.stage, this.age, j)) continue;
@@ -819,6 +826,8 @@ export class Villager {
   private reasonFor(j: JobId, need: number, aff: number, dreamed: boolean, fireEvening: boolean) {
     if (dreamed) return `Nhớ lời báo mộng, đi ${JOBS[j].name.toLowerCase()} thôi`;
     if (j === 'nghi' && this.scene.festivalOn()) return 'Hội làng mở rồi, ra đình trẩy hội thôi! 🥁';
+    if (j === 'nghi' && this.scene.midAutumnOn())
+      return this.stage === 'tre' ? 'Trung thu rồi, đi rước đèn ông sao thôi! ⭐' : 'Trăng rằm lên rồi, ra bày cỗ trông trăng thôi! 🥮';
     if (j === 'nghi' && fireEvening) return 'Tối rồi, ra ngồi bên bếp lửa với cả nhà';
     if (j !== 'nghi' && this.boredom() > 0.25) return 'Ngồi mãi cũng chán, đi làm gì đó thôi';
     if (need >= 0.6) return NEED_LINES[j];
@@ -948,12 +957,23 @@ export class Villager {
     const s = this.scene;
     const h = s.state.hour;
     const fire = s.nearestBuilt('lua', this.x, this.y);
+    const moon = s.midAutumnOn() ? s.moonSpot : null;
+    if (moon && this.stage === 'tre') return yield* this.parade(moon);
     const dinh = s.festivalOn() ? s.nearestBuilt('dinh', this.x, this.y) : null;
     const cho = s.marketOn() && this.stage !== 'be' && Math.random() < 0.6 ? s.nearestBuilt('cho', this.x, this.y) : null;
-    const fireEvening = !dinh && !!fire && h >= 18 && h < 21;
-    // Ngày hội / phiên chợ: tụ tập đông, trò chuyện rôm rả hơn.
+    const fireEvening = !dinh && !moon && !!fire && h >= 18 && h < 21;
+    // Ngày hội / phiên chợ / Trung thu: tụ tập đông, trò chuyện rôm rả hơn.
     const crowd = dinh ?? cho;
-    if (crowd) {
+    const festive = !!dinh || !!moon;
+    if (moon) {
+      this.status = 'Ra trông trăng phá cỗ';
+      const tx = moon.x + Phaser.Math.Between(-3, 3);
+      const ty = moon.y + Phaser.Math.Between(-1, 2);
+      const ok = s.isFree(tx, ty) && (yield* this.walkTo(tx, ty, 0.8));
+      if (ok) this.face(moon.x * TILE + TILE / 2);
+      const lines = this.stage === 'gia' ? ELDER_MOON_LINES : MOON_LINES;
+      this.status = lines[Math.floor(Math.random() * lines.length)];
+    } else if (crowd) {
       this.status = dinh ? 'Ra đình trẩy hội' : 'Đi chợ phiên';
       const tx = crowd.tx + Phaser.Math.Between(-2, crowd.def.w + 1);
       const ty = crowd.ty + crowd.def.h + Phaser.Math.Between(0, 2);
@@ -982,13 +1002,13 @@ export class Villager {
 
     let t = 0;
     let chat = 2 + Math.random() * 3;
-    const dur = fireEvening || crowd ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
+    const dur = fireEvening || crowd || moon ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
     while (t < dur) {
       const dt: number = yield;
       t += dt;
       this.relaxing = true;
-      this.byFire = fireEvening || !!crowd;
-      if (dinh) this.addMood(dt * 0.4);
+      this.byFire = fireEvening || !!crowd || !!moon;
+      if (festive) this.addMood(dt * 0.4);
       this.idleTime += dt;
       this.energy = Math.min(100, this.energy + dt * ENERGY_DRAIN * 1.5);
       if ((chat -= dt) <= 0) {
@@ -999,14 +1019,38 @@ export class Villager {
         if (friend && Math.random() < 0.6 && this.stage !== 'be') {
           // Hai người độc thân đã thân nhau thì nói chuyện ngọt ngào hơn.
           const sweet = s.canCourt(this, friend) && this.bond(friend) >= 35;
-          const lines = sweet ? SWEET_LINES : dinh ? FESTIVAL_CHAT : cho ? MARKET_CHAT : CHAT_LINES;
+          const lines = sweet ? SWEET_LINES : moon ? MOON_CHAT : dinh ? FESTIVAL_CHAT : cho ? MARKET_CHAT : CHAT_LINES;
           this.say(lines[Math.floor(Math.random() * lines.length)], 3500);
           this.addMood(2);
-          s.addBond(this, friend, dinh ? 10 : fireEvening || cho ? 7 : 4);
+          s.addBond(this, friend, festive ? 10 : fireEvening || cho ? 7 : 4);
           s.tryMarry(this, friend);
         }
       }
       if (this.mustStop()) return;
+    }
+  }
+
+  /** Đêm Trung thu: trẻ con cầm đèn ông sao rước quanh mâm cỗ, ríu rít với nhau. */
+  private *parade(spot: Pt): Beh {
+    const s = this.scene;
+    this.lantern = true;
+    try {
+      for (let i = 0; i < 4 && s.midAutumnOn(); i++) {
+        this.status = 'Rước đèn ông sao ⭐';
+        const a = Math.random() * Math.PI * 2;
+        const r = 3 + Math.random() * 4;
+        const tx = Math.round(spot.x + Math.cos(a) * r);
+        const ty = Math.round(spot.y + Math.sin(a) * r * 0.7);
+        if (s.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.75);
+        this.addMood(2);
+        this.idleTime = 0;
+        const pal = s.villagers.find((o) => o !== this && o.lantern && Phaser.Math.Distance.Between(o.x, o.y, this.x, this.y) < 110);
+        if (pal) s.addBond(this, pal, 6);
+        if (Math.random() < 0.5) this.say(PARADE_CHAT[Math.floor(Math.random() * PARADE_CHAT.length)], 3000);
+        if (this.mustStop()) return;
+      }
+    } finally {
+      this.lantern = false;
     }
   }
 

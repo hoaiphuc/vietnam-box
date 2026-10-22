@@ -1,6 +1,6 @@
 import type { JobId } from './data';
 
-/** 1 ngày trong game = 1 năm tuổi. */
+/** Tuổi tính theo năm: 12 tháng (12 vòng ngày đêm) mới thêm một tuổi. */
 export const ADULT_AGE = 16;
 export const ELDER_AGE = 60;
 export const MARRY_AGE = 18;

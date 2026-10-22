@@ -193,7 +193,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   cho: {
     name: 'Chợ phiên',
     icon: '🏮',
-    desc: 'Hai ngày họp một phiên: đổi đồ gốm lấy gỗ, tre và gạo của làng bên.',
+    desc: 'Tháng chẵn họp một phiên: đổi đồ gốm lấy gỗ, tre và gạo của làng bên.',
     w: 2,
     h: 2,
     cost: { go: 14, tre: 10, gach: 6 },
@@ -205,7 +205,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   dinh: {
     name: 'Đình làng',
     icon: '🏯',
-    desc: 'Nơi cả làng hội họp. Bốn ngày mở hội làng một lần.',
+    desc: 'Nơi cả làng hội họp. Mở hội làng vào tháng Hai, tháng Sáu, tháng Mười.',
     w: 2,
     h: 2,
     cost: { go: 30, gach: 24, dat: 6 },

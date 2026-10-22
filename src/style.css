@@ -984,8 +984,7 @@ h4 {
   font-size: 11px;
 }
 
-.memories,
-.journal {
+.memories {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -999,24 +998,6 @@ h4 {
   border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
-}
-
-.journal li {
-  padding-left: 8px;
-  border-left: 2px solid var(--accent-soft);
-  line-height: 1.4;
-}
-
-.journal time {
-  display: block;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
-}
-
-.journal .empty {
-  color: var(--ink-soft);
-  border: none;
 }
 
 .dnote {

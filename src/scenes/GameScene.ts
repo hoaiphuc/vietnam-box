@@ -3,7 +3,7 @@ import { Ambience } from '../audio/Ambience';
 import { AudioEngine, loadAudioSettings, saveAudioSettings } from '../audio/AudioEngine';
 import { Music } from '../audio/Music';
 import type { SfxId } from '../audio/sfx';
-import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, TILE } from '../config';
+import { DAY_LENGTH, FONT, MAP_H, MAP_W, MAX_DARK, perMonth, TILE, YEAR_LENGTH } from '../config';
 import {
   bestHouseTier,
   BUILDINGS,
@@ -141,7 +141,7 @@ export class GameScene extends Phaser.Scene {
           id: this.newId(),
           given: f.given,
           gender: f.gender,
-          birthTime: -f.age * DAY_LENGTH,
+          birthTime: -f.age * YEAR_LENGTH,
           palette: f.palette,
           skills: f.skills,
           traits: rollTraits(f.traits, 1),
@@ -392,6 +392,11 @@ export class GameScene extends Phaser.Scene {
     return this.state.festival && this.buildings.some((b) => b.id === 'dinh' && b.built);
   }
   /** Đang họp chợ phiên. */
+  /** Trung thu không cần đình: cả làng tụ quanh đống lửa (hoặc giữa xóm) trông trăng. */
+  midAutumnOn() {
+    return this.state.midAutumn;
+  }
+
   marketOn() {
     return this.state.marketOpen && this.buildings.some((b) => b.id === 'cho' && b.built);
   }
@@ -692,7 +697,7 @@ export class GameScene extends Phaser.Scene {
       case 'ca': {
         st.fishUntil = Math.max(st.time, st.fishUntil) + DAY_LENGTH;
         for (const r of this.ripples) r.setTint(0xffe9a0);
-        st.log('🐟 Cá về đầy sông — câu cá dễ trúng suốt một ngày');
+        st.log('🐟 Cá về đầy sông — câu cá dễ trúng suốt một tháng');
         break;
       }
       case 'loc': {
@@ -1123,7 +1128,7 @@ export class GameScene extends Phaser.Scene {
   /** Những người đã khuất — vẫn còn trong gia phả. */
   departed: Villager[] = [];
   private idCounter = 0;
-  private lastDay = 1;
+  private lastMonth = 1;
   private migrantAt = 0;
   private lastMigrant = 0;
   private cemetery: Pt | null = null;
@@ -1205,22 +1210,24 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Mỗi nửa đêm: người già có thể ra đi, các gia đình có thể đón con. Sáng ra có thể có dân mới đến. */
-  private newDay() {
+  /** Mỗi nửa đêm sang tháng mới: người già có thể ra đi, các gia đình có thể đón con. Sáng ra có thể có dân mới đến. */
+  private newMonth() {
     for (const v of [...this.villagers]) {
-      if (v.age >= 62 && Math.random() < 0.04 + (v.age - 62) * 0.025) this.passAway(v);
+      if (v.age >= 62 && Math.random() < perMonth(0.04 + (v.age - 62) * 0.025)) this.passAway(v);
     }
     const short = this.foodShortage();
     for (const mom of [...this.villagers]) {
       const dad = mom.spouse;
       if (!mom.female || !dad?.alive || mom.age < MARRY_AGE || mom.age > 42 || dad.age >= 60) continue;
       if (!mom.home?.built || mom.needsHome || mom.children.length >= 4 || short > 0.6) continue;
-      if (Math.random() < 0.3) this.birth(mom, dad);
+      // Đứa út chưa tròn một tuổi thì chưa có em.
+      if (mom.children.some((c) => c.age < 1)) continue;
+      if (Math.random() < perMonth(0.3)) this.birth(mom, dad);
     }
     this.migrantAt = this.state.time + DAY_LENGTH * (8 / 24);
-    this.newDayWeather();
-    // Mãi chưa ai để ý thì tới ngày 4 cũng có người tìm ra lúa nước.
-    if (this.state.day >= 4 && !this.state.has('ruong')) {
+    this.newMonthWeather();
+    // Mãi chưa ai để ý thì tới tháng 4 cũng có người tìm ra lúa nước.
+    if (this.state.month >= 4 && !this.state.has('ruong')) {
       const finder = this.villagers.filter((v) => !v.isChild).sort((a, b) => b.skills.hai.level - a.skills.hai.level)[0];
       if (finder) this.discover('ruong', finder, `Một sáng ra bãi bồi, ${finder.name} thấy lúa dại trổ bông, bèn mang hạt về gieo thử`);
     }
@@ -1301,7 +1308,7 @@ export class GameScene extends Phaser.Scene {
   /** Buổi sáng: làng sung túc thì có người từ làng bên tìm đến. */
   private migrants() {
     const st = this.state;
-    if (st.day < 2 || this.villagers.length >= 18 || st.time - this.lastMigrant < DAY_LENGTH * 2) return;
+    if (st.month < 2 || this.villagers.length >= 18 || st.time - this.lastMigrant < DAY_LENGTH * 2) return;
     const avgMood = this.villagers.reduce((s, v) => s + v.mood, 0) / this.villagers.length;
     if (avgMood < 55 || this.foodShortage() > 0.5 || Math.random() > 0.45) return;
     this.lastMigrant = st.time;
@@ -1318,7 +1325,7 @@ export class GameScene extends Phaser.Scene {
           id: this.newId(),
           given: randomName(gender, this.takenNames()),
           gender,
-          birthTime: st.time - age * DAY_LENGTH,
+          birthTime: st.time - age * YEAR_LENGTH,
           palette: randomPalette(gender),
           skills: age < 16 ? {} : skills,
           traits: rollTraits([], 2),
@@ -1386,7 +1393,7 @@ export class GameScene extends Phaser.Scene {
   /** Dân làng vừa làm xong một việc — có khi nhờ đó mà nghĩ ra điều mới. */
   notice(v: Villager, act: 'hai' | 'ca' | 'cay') {
     const st = this.state;
-    if (!st.has('ruong') && st.day >= 2 && act !== 'cay' && Math.random() < 0.15) {
+    if (!st.has('ruong') && st.month >= 2 && act !== 'cay' && Math.random() < 0.15) {
       this.discover('ruong', v, `${v.name} để ý thấy lúa dại trổ bông ở bãi bồi ven sông, bèn mang hạt về gieo thử`);
     } else if (st.has('ruong') && !st.has('gom') && this.villagers.length >= 4 && act !== 'hai') {
       const knack = v.has('kheoTay') || v.has('toMo') ? 0.18 : 0.08;
@@ -1432,11 +1439,20 @@ export class GameScene extends Phaser.Scene {
   private festivalWas = false;
   private traders: Phaser.GameObjects.GameObject[] = [];
   private lanterns: Phaser.GameObjects.GameObject[] = [];
+  private midAutumnWas = false;
+  /** Chỗ bày mâm cỗ đêm Trung thu (ô); null khi không phải Trung thu. */
+  moonSpot: Pt | null = null;
+  private moonDecor: Phaser.GameObjects.GameObject[] = [];
+  /** Đèn ông sao trên tay trẻ con đang rước đèn. */
+  private kidLamps = new Map<Villager, { lamp: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; phase: number }>();
+  /** 0..1 — trăng rằm làm đêm sáng hơn. */
+  private moonLight = 0;
+  private moonFeast = false;
 
   /** Mỗi sáng: có thể có mưa rào tự nhiên; lâu ngày không mưa thì hạn hán. */
-  private newDayWeather() {
+  private newMonthWeather() {
     const st = this.state;
-    if (!st.drought && st.day >= 4 && st.time - st.lastRain > DAY_LENGTH * 2.5 && Math.random() < 0.5) {
+    if (!st.drought && st.month >= 4 && st.time - st.lastRain > DAY_LENGTH * 2.5 && Math.random() < 0.5) {
       st.drought = true;
       this.droughtSince = st.time;
       st.log('☀️ Trời hạn hán — ruộng nứt nẻ, lúa còi cọc, dân làng mong mưa');
@@ -1482,6 +1498,12 @@ export class GameScene extends Phaser.Scene {
       this.festivalWas = fest;
       if (fest) this.startFestival();
       else this.endFestival();
+    }
+    const moon = this.midAutumnOn();
+    if (moon !== this.midAutumnWas) {
+      this.midAutumnWas = moon;
+      if (moon) this.startMidAutumn();
+      else this.endMidAutumn();
     }
   }
 
@@ -1549,6 +1571,125 @@ export class GameScene extends Phaser.Scene {
     this.state.log('🎆 Hội làng tan, ai nấy ra về vui vẻ — Thành Hoàng được thêm Phúc');
   }
 
+  /** Một ô trống cạnh đống lửa gần xóm nhất (chưa có lửa thì giữa xóm) để bày cỗ. */
+  private findMoonSpot(): Pt {
+    const h = this.homeTile;
+    const fire = this.nearestBuilt('lua', h.x * TILE, h.y * TILE);
+    const c = fire ? { x: fire.tx, y: fire.ty + 2 } : h;
+    for (let r = 0; r < 4; r++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) if (this.isFree(c.x + dx, c.y + dy)) return { x: c.x + dx, y: c.y + dy };
+    return c;
+  }
+
+  /** Rằm tháng Tám: bày mâm cỗ, trăng soi mặt sông, lân múa, trẻ con rước đèn ông sao. */
+  private startMidAutumn() {
+    const st = this.state;
+    const spot = this.findMoonSpot();
+    this.moonSpot = spot;
+    const x = spot.x * TILE + TILE / 2;
+    const y = spot.y * TILE + TILE / 2;
+    const at = { x, y };
+
+    // Mâm cỗ lấy từ kho, nhưng chừa lại đủ ăn.
+    const fruit = Math.min(4, Math.max(0, st.res.chuoi - 4));
+    const rice = Math.min(2, Math.max(0, st.res.com - 4));
+    st.res.chuoi -= fruit;
+    st.res.com -= rice;
+    this.moonFeast = fruit + rice > 0;
+    const feast = this.add.image(x, y + 6, 'feast').setOrigin(0.5, 1).setDepth(y);
+    this.moonDecor.push(feast);
+
+    // Con lân nhảy múa qua lại trước mâm cỗ.
+    const lion = this.add.image(x - 40, y + 30, 'lion').setOrigin(0.5, 1).setDepth(y + 30);
+    this.tweens.add({ targets: lion, y: '-=5', duration: 260, yoyo: true, repeat: -1, ease: 'Quad.easeOut' });
+    this.tweens.add({
+      targets: lion,
+      x: x + 40,
+      duration: 3200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+      // Đầu lân vẽ quay sang trái: đi sang phải thì lật lại.
+      onYoyo: () => lion.setFlipX(false),
+      onRepeat: () => lion.setFlipX(true),
+    });
+    lion.setFlipX(true);
+    this.moonDecor.push(lion);
+
+    // Bóng trăng rằm soi trên khúc sông gần nhất.
+    const water = this.waterTiles.reduce<Pt | null>(
+      (best, t) => (!best || Math.hypot(t.x - spot.x, t.y - spot.y) < Math.hypot(best.x - spot.x, best.y - spot.y) ? t : best),
+      null,
+    );
+    if (water && Math.hypot(water.x - spot.x, water.y - spot.y) < 18) {
+      const wx = water.x * TILE + TILE / 2;
+      const wy = water.y * TILE + TILE / 2;
+      const glow = this.add.image(wx, wy, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xfff2c0).setScale(0.9, 0.4).setDepth(50001);
+      const disc = this.add.image(wx, wy, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xfffbe8).setScale(0.28, 0.16).setDepth(50002);
+      this.tweens.add({ targets: [glow, disc], alpha: { from: 0.55, to: 0.95 }, scaleX: '*=1.08', duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.moonDecor.push(glow, disc);
+    }
+
+    for (const v of this.villagers) v.addMood(6);
+    this.festivalDrum = 0;
+    this.sfx('bless', x, y);
+    st.log(
+      this.moonFeast
+        ? `🥮 Rằm tháng Tám — Tết Trung thu! Làng bày mâm cỗ${fruit ? ` ${fruit} nải chuối` : ''}${rice ? `${fruit ? ',' : ''} ${rice} bát cơm` : ''} trông trăng`
+        : '🥮 Rằm tháng Tám — Tết Trung thu! Kho còn ít, mâm cỗ đơn sơ nhưng trăng vẫn tròn vằng vặc',
+      at,
+    );
+    this.hud.banner('🥮', 'Tết Trung thu', 'Rằm tháng Tám, trăng tròn vằng vặc — trẻ con rước đèn ông sao, cả làng bày cỗ trông trăng, xem múa lân');
+  }
+
+  private endMidAutumn() {
+    for (const d of this.moonDecor) d.destroy();
+    this.moonDecor = [];
+    for (const { lamp, glow } of this.kidLamps.values()) {
+      lamp.destroy();
+      glow.destroy();
+    }
+    this.kidLamps.clear();
+    this.moonSpot = null;
+    for (const v of this.villagers) {
+      if (v.stage === 'tre') v.remember('trungthu', '⭐', 'Được rước đèn ông sao đêm Trung thu', 2);
+      else if (v.stage !== 'be') v.remember('trungthu', '🌕', 'Trông trăng phá cỗ cùng cả làng', 2);
+      v.addMood(this.moonFeast ? 8 : 4);
+    }
+    this.addPhuc(12);
+    this.state.log(
+      this.moonFeast
+        ? '🌕 Trẻ con phá cỗ, chia nhau bánh trái — Trung thu khép lại trong tiếng cười, Thành Hoàng được thêm Phúc'
+        : '🌕 Trăng đã lên cao, Trung thu khép lại — Thành Hoàng được thêm Phúc',
+    );
+  }
+
+  /** Đèn ông sao đi theo tay trẻ con đang rước đèn. */
+  private updateKidLamps() {
+    for (const [v, l] of this.kidLamps) {
+      if (v.lantern && v.alive) continue;
+      l.lamp.destroy();
+      l.glow.destroy();
+      this.kidLamps.delete(v);
+    }
+    for (const v of this.villagers) {
+      if (!v.lantern) continue;
+      let l = this.kidLamps.get(v);
+      if (!l) {
+        l = {
+          lamp: this.add.image(0, 0, 'starLantern').setOrigin(0.5, 1),
+          glow: this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xffb040).setScale(0.45).setDepth(50001),
+          phase: Math.random() * 6,
+        };
+        this.kidLamps.set(v, l);
+      }
+      const sway = Math.sin(this.realTime * 3 + l.phase) * 8;
+      l.lamp.setPosition(v.x + 9, v.y - 14).setAngle(sway).setDepth(v.y + 1).setVisible(!v.inside);
+      l.glow.setPosition(v.x + 9, v.y - 36).setVisible(!v.inside);
+    }
+  }
+
   // ------------------------------------------------------------ điều khiển
 
   private setupInput() {
@@ -1608,6 +1749,7 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-TWO', () => !this.cutscene && this.state.setSpeed(2));
     kb.on('keydown-THREE', () => !this.cutscene && this.state.setSpeed(3));
     kb.on('keydown-FOUR', () => !this.cutscene && this.state.setSpeed(5));
+    kb.on('keydown-FIVE', () => !this.cutscene && this.state.setSpeed(15));
     kb.on('keydown-ESC', () => {
       if (this.cutscene) return;
       if (this.powerMode) this.cancelPower();
@@ -1642,7 +1784,8 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < steps && dt > 0; i++) this.simulate(dt / steps);
 
     this.layoutBubbles();
-    this.updateLighting();
+    this.updateKidLamps();
+    this.updateLighting(realDt);
     this.updateRain(realDt);
     this.updateGhost();
 
@@ -1667,10 +1810,10 @@ export class GameScene extends Phaser.Scene {
     const st = this.state;
     {
       st.time += dt;
-      const day = st.dayAt(st.time);
-      if (day !== this.lastDay) {
-        this.lastDay = day;
-        this.newDay();
+      const month = st.monthAt(st.time);
+      if (month !== this.lastMonth) {
+        this.lastMonth = month;
+        this.newMonth();
       }
       if (this.migrantAt && st.time >= this.migrantAt) {
         this.migrantAt = 0;
@@ -1694,10 +1837,12 @@ export class GameScene extends Phaser.Scene {
         } else st.log('🌤️ Trời tạnh mưa, cây cối xanh mướt');
       }
       this.simulateWorld(dt);
-      if (this.festivalWas && (this.festivalDrum -= dt) <= 0) {
+      if ((this.festivalWas || this.midAutumnWas) && (this.festivalDrum -= dt) <= 0) {
         this.festivalDrum = 6;
-        const dinh = this.buildings.find((b) => b.id === 'dinh' && b.built);
+        const dinh = this.festivalWas ? this.buildings.find((b) => b.id === 'dinh' && b.built) : null;
+        const m = this.moonSpot;
         if (dinh) this.sfx('drum', dinh.px, dinh.py, 0.6);
+        else if (m) this.sfx('drum', m.x * TILE, m.y * TILE, 0.6);
       }
       if (!st.fishBoost && this.ripples[0]?.tintTopLeft !== 0xffffff) for (const r of this.ripples) r.clearTint();
 
@@ -1766,12 +1911,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateLighting() {
+  private updateLighting(realDt: number) {
     const h = this.state.hour;
     const dark = darknessAt(h);
     const night = dark / MAX_DARK;
     this.night = night;
-    this.darkness.setAlpha(dark);
+    // Đêm rằm trăng sáng: bớt tối dần dần chứ không bật tắt đột ngột.
+    const moon = this.midAutumnWas ? 1 : 0;
+    this.moonLight += Phaser.Math.Clamp(moon - this.moonLight, -realDt * 0.3, realDt * 0.3);
+    this.darkness.setAlpha(dark * (1 - this.moonLight * 0.3));
     this.warmth.setAlpha(warmthAt(h));
     for (const b of this.buildings) b.updateLight(night, this.realTime);
     for (const f of this.fireflies) {

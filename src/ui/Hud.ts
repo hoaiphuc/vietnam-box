@@ -76,7 +76,6 @@ export class Hud {
   private bannerTimer = 0;
   private detail: HTMLElement;
   private detailFor: Villager | null = null;
-  private journalKey = '';
   private memoryKey = '';
   private toasts: HTMLElement;
   private hint: HTMLElement;
@@ -113,7 +112,8 @@ export class Hud {
           <button data-speed="1" title="Bình thường (1)">▶</button>
           <button data-speed="2" title="Nhanh (2)">⏩</button>
           <button data-speed="3" title="Rất nhanh (3)">⏭</button>
-          <button data-speed="5" title="Nhanh nhất (4) — xem các thế hệ nối tiếp">x5</button>
+          <button data-speed="5" title="Rất rất nhanh (4) — xem các thế hệ nối tiếp">x5</button>
+          <button data-speed="15" title="Nhanh nhất (5) — để thử nhanh">x15</button>
         </div>
         <div class="sound">
           <button class="snd-btn" title="Âm thanh (M để tắt/bật)">🔊</button>
@@ -181,9 +181,10 @@ export class Hud {
             <li>🖱️ Nhấp vào một người để xem họ đang nghĩ gì</li>
             <li>💭 Báo mộng để gợi ý một việc — nghe hay không là tuỳ họ</li>
             <li>📐 Quy hoạch chỗ xây, trưởng làng sẽ cho xây khi đủ gỗ</li>
-            <li>🌳 Mỗi ngày là một năm: trẻ lớn lên, kết duyên, sinh con, già đi — xem Gia phả</li>
+            <li>🌳 Mỗi vòng ngày đêm là một tháng, 12 tháng là một năm: trẻ lớn lên, kết duyên, sinh con, già đi — xem Gia phả</li>
+            <li>🥮 Rằm tháng Tám mỗi năm: trẻ con rước đèn ông sao, cả làng trông trăng phá cỗ</li>
             <li>✋ Kéo chuột / WASD để di chuyển, cuộn chuột để phóng to</li>
-            <li>⏸ Space tạm dừng · 1 2 3 đổi tốc độ · M tắt tiếng</li>
+            <li>⏸ Space tạm dừng · 1–5 đổi tốc độ (tới x15) · M tắt tiếng</li>
           </ul>
           <button class="start">Bắt đầu 🌱</button>
         </div>
@@ -529,15 +530,15 @@ export class Hud {
     }
   }
 
-  private historyHtml(entries: { e: HistoryEntry; i: number }[], days: boolean) {
+  private historyHtml(entries: { e: HistoryEntry; i: number }[], months: boolean) {
     const s = this.scene.state;
-    let day = -1;
+    let month = -1;
     let html = '';
     for (const { e, i } of entries) {
-      const d = s.dayAt(e.time);
-      if (days && d !== day) {
-        day = d;
-        html += `<div class="hday">Ngày ${d}</div>`;
+      const m = s.monthAt(e.time);
+      if (months && m !== month) {
+        month = m;
+        html += `<div class="hday">${s.dateLabel(m)}</div>`;
       }
       html += `<div class="hitem${e.at ? ' loc' : ''}" data-i="${i}"${e.at ? ' title="Nhấp để tới chỗ này"' : ''}>
         <time>${s.clockAt(e.time)}</time><span>${e.text}</span></div>`;
@@ -545,24 +546,24 @@ export class Hud {
     return html;
   }
 
-  /** Sử làng: bảng nhỏ chỉ hiện chuyện hôm nay; "Xem tất cả" mở toàn bộ, chia theo ngày. Mới nhất ở trên. */
+  /** Sử làng: bảng nhỏ chỉ hiện chuyện tháng này; "Xem tất cả" mở toàn bộ, chia theo tháng. Mới nhất ở trên. */
   private updateHistory() {
     const s = this.scene.state;
     const h = s.history;
     const full = !this.historyOverlay.hidden;
-    const key = `${h.length}:${h[0]?.time ?? ''}:${s.day}:${full}`;
+    const key = `${h.length}:${h[0]?.time ?? ''}:${s.month}:${full}`;
     if (key === this.historyKey) return;
     this.historyKey = key;
 
-    q(this.root, '.hsub').textContent = `· Ngày ${s.day}`;
+    q(this.root, '.hsub').textContent = `· ${s.dateLabel(s.month)}`;
     const all = h.map((e, i) => ({ e, i }));
-    const today = all.filter(({ e }) => s.dayAt(e.time) === s.day);
-    this.historyList.innerHTML = today.length
-      ? this.historyHtml(today, false)
-      : `<div class="hempty">Hôm nay làng còn yên ả, chưa có chuyện gì…</div>`;
+    const now = all.filter(({ e }) => s.monthAt(e.time) === s.month);
+    this.historyList.innerHTML = now.length
+      ? this.historyHtml(now, false)
+      : `<div class="hempty">Tháng này làng còn yên ả, chưa có chuyện gì…</div>`;
 
     if (full) {
-      q(this.historyOverlay, '.hcount').textContent = `· ${h.length} sự kiện qua ${s.day} ngày`;
+      q(this.historyOverlay, '.hcount').textContent = `· ${h.length} sự kiện qua ${s.month} tháng`;
       this.historyFull.innerHTML = this.historyHtml(all, true);
     }
   }
@@ -589,7 +590,6 @@ export class Hud {
   renderDetail() {
     const v = this.scene.selected;
     this.detailFor = v;
-    this.journalKey = '';
     this.memoryKey = '';
     for (const [cv, c] of this.cards) c.root.classList.toggle('selected', cv === v);
     if (!v) {
@@ -633,8 +633,6 @@ export class Hud {
       </div>
       <div class="dnote"></div>
       <div class="memories-wrap"><h4>Ký ức</h4><ul class="memories"></ul></div>
-      <h4>Nhật ký</h4>
-      <ul class="journal"></ul>
     `;
     q(this.detail, '.close').addEventListener('click', () => this.scene.select(null));
     for (const b of this.detail.querySelectorAll<HTMLButtonElement>('[data-job]')) {
@@ -701,6 +699,7 @@ export class Hud {
       b.disabled = cooling || poor;
       if (j === 'nghi') continue;
       const sk = v.skills[j];
+      b.hidden = sk.level === 0;
       q(b, '.jl').textContent = levelLabel(sk.level);
       q(b, '.xp i').style.width = sk.level >= MAX_LEVEL ? '100%' : `${(sk.xp / xpNeed(sk.level)) * 100}%`;
     }
@@ -740,17 +739,6 @@ export class Hud {
       q(this.detail, '.memories-wrap').hidden = !v.memories.length;
       q(this.detail, '.memories').innerHTML = v.memories.map((m) => `<li>${m.icon} ${m.text}</li>`).join('');
     }
-
-    const jKey = `${v.journal.length}:${v.journal[0]?.time ?? ''}`;
-    if (jKey !== this.journalKey) {
-      this.journalKey = jKey;
-      q(this.detail, '.journal').innerHTML = v.journal.length
-        ? v.journal
-            .slice(0, 12)
-            .map((e) => `<li><time>${s.stamp(e.time)}</time>${e.text}</li>`)
-            .join('')
-        : '<li class="empty">Chưa có gì để ghi...</li>';
-    }
   }
 
   update() {
@@ -765,14 +753,15 @@ export class Hud {
     const hh = Math.floor(h);
     const mm = Math.floor(((h - hh) * 60) / 10) * 10;
     const part = h < 5 ? 'Đêm' : h < 11 ? 'Sáng' : h < 13 ? 'Trưa' : h < 17.5 ? 'Chiều' : h < 20 ? 'Chạng vạng' : 'Đêm';
-    this.clockText.textContent = `Ngày ${s.day} · ${pad(hh)}:${pad(mm)}`;
+    this.clockText.textContent = `${s.dateLabel(s.month)} · ${pad(hh)}:${pad(mm)}`;
     this.clockText.parentElement!.title = part;
-    this.clockIcon.textContent = h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
+    this.clockIcon.textContent = this.scene.midAutumnOn() ? '🌕' : h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
     const tags: string[] = [];
     if (s.raining) tags.push('🌧️ Mưa');
     else if (s.drought) tags.push('☀️ Hạn hán');
     if (this.scene.marketOn()) tags.push('🏮 Phiên chợ');
     if (this.scene.festivalOn()) tags.push('🥁 Hội làng');
+    if (this.scene.midAutumnOn()) tags.push('🥮 Trung thu');
     const tagText = tags.length ? ` · ${tags.join(' · ')}` : '';
     if (this.clockTags.textContent !== tagText) this.clockTags.textContent = tagText;
     this.updateUnlocks();
