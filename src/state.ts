@@ -15,6 +15,8 @@ export class GameState {
   res: Record<ResKey, number> = { go: 12, tre: 6, rom: 0, dat: 0, gach: 0, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0 };
   /** Những phát kiến làng đã tìm ra. */
   discovered = new Set<DiscId>();
+  /** Vật phẩm làng đã từng có — cho bộ sưu tập. */
+  seenRes = new Set((Object.keys(this.res) as ResKey[]).filter((k) => this.res[k] > 0));
   /** Trời hạn hán: lúa lớn chậm, dân hay cầu mưa. */
   drought = false;
   /** Lần cuối trời mưa (giây game). */
@@ -65,6 +67,11 @@ export class GameState {
   get midAutumn() {
     const h = this.hour;
     return this.monthOfYear === 8 && h >= 18 && h < 21;
+  }
+  /** Tết: chiều tối tháng Chạp (tháng 12) từ 17 giờ, qua giao thừa lúc nửa đêm, tới 1 giờ sáng tháng Giêng. */
+  get tet() {
+    const h = this.hour;
+    return (this.monthOfYear === 12 && h >= 17) || (this.monthOfYear === 1 && this.month > 1 && h < 1);
   }
 
   addPhuc(n: number) {
@@ -121,6 +128,8 @@ export class GameState {
   }
 
   isSleepTime() {
+    // Đêm ba mươi cả làng thức đón giao thừa.
+    if (this.tet) return false;
     const h = this.hour;
     return h >= 21 || h < 5;
   }

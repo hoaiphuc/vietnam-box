@@ -20,22 +20,24 @@ export interface ResInfo {
   icon: string;
   /** Lượng no bụng hồi lại khi ăn. Không có = không ăn được. */
   food?: number;
+  /** Gợi ý trong bộ sưu tập khi làng chưa từng có. */
+  hint: string;
 }
 
 export const RESOURCES: Record<ResKey, ResInfo> = {
-  go: { name: 'Gỗ', icon: '🪵' },
-  tre: { name: 'Tre', icon: '🎋' },
-  rom: { name: 'Rơm', icon: '🧹' },
-  dat: { name: 'Đất sét', icon: '🟤' },
-  gach: { name: 'Gạch ngói', icon: '🧱' },
-  thit: { name: 'Thịt sống', icon: '🥩' },
-  ca: { name: 'Cá tươi', icon: '🐟' },
-  chuoi: { name: 'Chuối', icon: '🍌', food: 22 },
-  thitNuong: { name: 'Thịt nướng', icon: '🍖', food: 55 },
-  caNuong: { name: 'Cá nướng', icon: '🍢', food: 45 },
-  thoc: { name: 'Thóc', icon: '🌾' },
-  com: { name: 'Cơm', icon: '🍚', food: 45 },
-  gom: { name: 'Đồ gốm', icon: '🏺' },
+  go: { name: 'Gỗ', icon: '🪵', hint: 'Đốn cây trong rừng…' },
+  tre: { name: 'Tre', icon: '🎋', hint: 'Chặt những bụi tre ven làng…' },
+  rom: { name: 'Rơm', icon: '🧹', hint: 'Còn lại sau mỗi mùa gặt…' },
+  dat: { name: 'Đất sét', icon: '🟤', hint: 'Đào ở bãi bồi ven sông…' },
+  gach: { name: 'Gạch ngói', icon: '🧱', hint: 'Đất sét nung trong lò…' },
+  thit: { name: 'Thịt sống', icon: '🥩', hint: 'Đi săn gà rừng, heo rừng…' },
+  ca: { name: 'Cá tươi', icon: '🐟', hint: 'Ra bờ sông thả câu…' },
+  chuoi: { name: 'Chuối', icon: '🍌', food: 22, hint: 'Hái quanh làng và ven sông…' },
+  thitNuong: { name: 'Thịt nướng', icon: '🍖', food: 55, hint: 'Mang thịt ra nướng bên đống lửa…' },
+  caNuong: { name: 'Cá nướng', icon: '🍢', food: 45, hint: 'Mang cá ra nướng bên đống lửa…' },
+  thoc: { name: 'Thóc', icon: '🌾', hint: 'Gặt lúa chín ngoài ruộng…' },
+  com: { name: 'Cơm', icon: '🍚', food: 45, hint: 'Thổi từ thóc bên đống lửa…' },
+  gom: { name: 'Đồ gốm', icon: '🏺', hint: 'Nặn đất sét rồi nung trong lò…' },
 };
 
 /** Vật liệu dựng nhà cửa, làm đồ dùng. */

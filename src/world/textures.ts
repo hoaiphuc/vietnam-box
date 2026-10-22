@@ -696,6 +696,96 @@ function drawLion(c: Ctx) {
   line(c, 20, 7, 23, 3, '#ffe27a', 1.4);
 }
 
+/** Cây nêu ngày Tết: cây tre cao, ngọn còn lá, treo khánh và dải vải đỏ. */
+function drawCayNeu(c: Ctx) {
+  ell(c, 16, 94, 9, 2.5, 'rgba(0,0,0,0.22)');
+  line(c, 16, 94, 16, 12, '#8aa04a', 2.4);
+  for (let y = 84; y > 16; y -= 12) line(c, 14.5, y, 17.5, y, '#6f8a36', 1.2);
+  // chùm lá tre trên ngọn
+  for (const [dx, dy, r] of [
+    [-7, 8, -0.7],
+    [7, 8, 0.7],
+    [-4, 4, -0.3],
+    [4, 4, 0.3],
+    [0, 2, 0],
+  ] as const)
+    ell(c, 16 + dx, 10 + dy, 2, 7, '#5f9a3a', r);
+  // dải vải đỏ và khánh vàng treo lủng lẳng
+  line(c, 16, 20, 25, 30, '#d63a2a', 2);
+  line(c, 25, 30, 26, 44, '#d63a2a', 2);
+  line(c, 16, 22, 8, 32, '#e8b13a', 1);
+  poly(c, [5, 32, 11, 32, 8, 38], '#e8b13a');
+  circle(c, 26, 46, 2.2, '#e8b13a');
+}
+
+/** Nồi bánh chưng sôi trên ba ông đầu rau, lửa củi bên dưới. */
+function drawBanhPot(c: Ctx) {
+  ell(c, 22, 34, 18, 3.5, 'rgba(0,0,0,0.25)');
+  for (const x of [8, 22, 36]) rrect(c, x - 4, 25, 8, 8, 2, '#8a877b');
+  ell(c, 22, 30, 9, 3, '#ff8a3d');
+  ell(c, 22, 30, 5, 2, '#ffe27a');
+  rrect(c, 6, 8, 32, 20, 5, '#2f2b27');
+  ell(c, 22, 9, 16, 4, '#46413b');
+  ell(c, 22, 9, 13, 2.8, '#6a8a4a');
+  // đòn bánh chưng gói lá dong
+  for (const x of [16, 22, 28]) {
+    rrect(c, x - 3, 5, 6, 5, 1, '#3f7a3a');
+    line(c, x, 5, x, 10, '#c9b07a', 0.8);
+  }
+}
+
+/** Cây hoa đào nở hồng đón xuân. */
+function drawPeach(c: Ctx) {
+  ell(c, 18, 44, 10, 2.5, 'rgba(0,0,0,0.2)');
+  rrect(c, 10, 36, 16, 8, 2, '#b0533a');
+  line(c, 18, 37, 18, 20, '#5a3b22', 2.4);
+  line(c, 18, 26, 9, 15, '#5a3b22', 1.6);
+  line(c, 18, 24, 28, 12, '#5a3b22', 1.6);
+  line(c, 18, 20, 17, 7, '#5a3b22', 1.4);
+  const r = mulberry32(7);
+  for (let i = 0; i < 34; i++) {
+    const x = 6 + r() * 26;
+    const y = 4 + r() * 20;
+    circle(c, x, y, 1.5 + r() * 1.1, r() < 0.6 ? '#f29bb2' : '#ffc4d4');
+  }
+  for (let i = 0; i < 8; i++) circle(c, 8 + r() * 22, 6 + r() * 16, 0.7, '#d6456a');
+}
+
+/** Cán đuốc: thân tre, đầu quấn giẻ tẩm dầu — ngọn lửa vẽ riêng phía trên để bập bùng. */
+function drawTorch(c: Ctx) {
+  line(c, 5, 30, 6, 7, '#8a6a3a', 2.4);
+  line(c, 4.2, 29, 5.2, 8, '#a8844e', 0.8);
+  rrect(c, 3, 2, 6, 7, 2, '#5a3b22');
+  for (const y of [3.5, 5.5, 7.5]) line(c, 3, y, 9, y + 0.6, '#3a2616', 0.8);
+}
+
+/** Võng gai mắc giữa hai cọc tre trước nhà. */
+function drawHammock(c: Ctx) {
+  ell(c, 30, 38, 24, 3, 'rgba(0,0,0,0.2)');
+  for (const x of [5, 55]) {
+    line(c, x, 38, x, 8, '#8a6a3a', 3);
+    line(c, x - 1, 12, x + 1, 12, '#6e5430', 1);
+  }
+  // lòng võng võng xuống ở giữa
+  c.fillStyle = '#c96a3a';
+  c.beginPath();
+  c.moveTo(6, 10);
+  c.quadraticCurveTo(30, 40, 54, 10);
+  c.quadraticCurveTo(30, 30, 6, 10);
+  c.fill();
+  c.strokeStyle = 'rgba(90,40,20,0.55)';
+  c.lineWidth = 0.8;
+  for (let i = 1; i < 8; i++) {
+    const t = i / 8;
+    const x = 6 + t * 48;
+    const y = 10 + Math.sin(t * Math.PI) * 14;
+    c.beginPath();
+    c.moveTo(x, y - 2);
+    c.lineTo(x, y + 4);
+    c.stroke();
+  }
+}
+
 function drawShrine(c: Ctx) {
   ell(c, 20, 54, 19, 3.5, 'rgba(0,0,0,0.2)');
   // nền đá, bậc thềm
@@ -850,6 +940,11 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'starLantern', 18, 30, drawStarLantern);
   make(scene, 'feast', 44, 26, drawFeast);
   make(scene, 'lion', 46, 34, drawLion);
+  make(scene, 'cayNeu', 32, 98, drawCayNeu);
+  make(scene, 'banhPot', 44, 38, drawBanhPot);
+  make(scene, 'peach', 36, 46, drawPeach);
+  make(scene, 'hammock', 60, 40, drawHammock);
+  make(scene, 'torch', 12, 32, drawTorch);
   make(scene, 'flame', 20, 28, drawFlame);
 
   make(scene, 'glow', 128, 128, (c) =>

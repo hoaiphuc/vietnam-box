@@ -42,9 +42,9 @@ export interface FishingSpot {
   reservedBy: Villager | null;
 }
 
-/** Gia đình lập làng. Mỗi người có một nét tính cách cố định, thêm một nét ngẫu nhiên mỗi ván. */
+/** Gia đình lập làng. Mỗi người có nét tính cách cố định, thiếu thì thêm nét ngẫu nhiên cho đủ hai. Bố Tám là cú đêm. */
 const FOUNDERS: { given: string; gender: Gender; age: number; palette: Palette; skills: VillagerDef['skills']; traits: TraitId[] }[] = [
-  { given: 'Tám', gender: 'nam', age: 34, palette: palette('#7a5236', '#33302c', true), skills: { chat: 2, san: 1, xay: 1 }, traits: ['khoeManh'] },
+  { given: 'Tám', gender: 'nam', age: 34, palette: palette('#7a5236', '#33302c', true), skills: { chat: 2, san: 1, xay: 1 }, traits: ['khoeManh', 'cuDem'] },
   { given: 'Lan', gender: 'nu', age: 31, palette: palette('#9c72b5', '#24211f', true), skills: { nau: 2, hai: 1, ca: 1 }, traits: ['kheoTay'] },
   { given: 'Na', gender: 'nu', age: 8, palette: palette('#f3f1ea', '#3b6fb6', true), skills: { hai: 1 }, traits: ['toMo'] },
 ];
@@ -144,7 +144,7 @@ export class GameScene extends Phaser.Scene {
           birthTime: -f.age * YEAR_LENGTH,
           palette: f.palette,
           skills: f.skills,
-          traits: rollTraits(f.traits, 1),
+          traits: rollTraits(f.traits, Math.max(0, 2 - f.traits.length)),
         },
         v.x - 1 + i,
         v.y + 1,
@@ -395,6 +395,11 @@ export class GameScene extends Phaser.Scene {
   /** Trung thu không cần đình: cả làng tụ quanh đống lửa (hoặc giữa xóm) trông trăng. */
   midAutumnOn() {
     return this.state.midAutumn;
+  }
+
+  /** Đêm ba mươi Tết tới giao thừa. */
+  tetOn() {
+    return this.state.tet;
   }
 
   marketOn() {
@@ -1212,6 +1217,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Mỗi nửa đêm sang tháng mới: người già có thể ra đi, các gia đình có thể đón con. Sáng ra có thể có dân mới đến. */
   private newMonth() {
+    if (this.tetWas && this.state.monthOfYear === 1) this.newYear();
+    if (this.state.monthOfYear === 2) this.clearSpring();
     for (const v of [...this.villagers]) {
       if (v.age >= 62 && Math.random() < perMonth(0.04 + (v.age - 62) * 0.025)) this.passAway(v);
     }
@@ -1440,11 +1447,27 @@ export class GameScene extends Phaser.Scene {
   private traders: Phaser.GameObjects.GameObject[] = [];
   private lanterns: Phaser.GameObjects.GameObject[] = [];
   private midAutumnWas = false;
-  /** Chỗ bày mâm cỗ đêm Trung thu (ô); null khi không phải Trung thu. */
-  moonSpot: Pt | null = null;
+  /** Chỗ cả làng tụ họp đêm Trung thu / đêm Tết (ô); null khi không có lễ. */
+  gatherSpot: Pt | null = null;
+  private tetWas = false;
+  private banhChung = false;
+  /** Nồi bánh chưng: dẹp đi khi tàn đêm giao thừa. */
+  private tetDecor: Phaser.GameObjects.GameObject[] = [];
+  /** Cây nêu, hoa đào: để nguyên cả tháng Giêng. */
+  private springDecor: Phaser.GameObjects.GameObject[] = [];
   private moonDecor: Phaser.GameObjects.GameObject[] = [];
-  /** Đèn ông sao trên tay trẻ con đang rước đèn. */
-  private kidLamps = new Map<Villager, { lamp: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; phase: number }>();
+  /** Đèn ông sao / bó đuốc trên tay người đang cầm. */
+  private kidLamps = new Map<
+    Villager,
+    {
+      kind: 'star' | 'torch';
+      lamp: Phaser.GameObjects.Image;
+      glow: Phaser.GameObjects.Image;
+      /** Ngọn lửa trên đầu cán đuốc. */
+      flame?: Phaser.GameObjects.Image;
+      phase: number;
+    }
+  >();
   /** 0..1 — trăng rằm làm đêm sáng hơn. */
   private moonLight = 0;
   private moonFeast = false;
@@ -1504,6 +1527,12 @@ export class GameScene extends Phaser.Scene {
       this.midAutumnWas = moon;
       if (moon) this.startMidAutumn();
       else this.endMidAutumn();
+    }
+    const tet = this.tetOn();
+    if (tet !== this.tetWas) {
+      this.tetWas = tet;
+      if (tet) this.startTet();
+      else this.endTet();
     }
   }
 
@@ -1572,7 +1601,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Một ô trống cạnh đống lửa gần xóm nhất (chưa có lửa thì giữa xóm) để bày cỗ. */
-  private findMoonSpot(): Pt {
+  private findGatherSpot(): Pt {
     const h = this.homeTile;
     const fire = this.nearestBuilt('lua', h.x * TILE, h.y * TILE);
     const c = fire ? { x: fire.tx, y: fire.ty + 2 } : h;
@@ -1585,8 +1614,8 @@ export class GameScene extends Phaser.Scene {
   /** Rằm tháng Tám: bày mâm cỗ, trăng soi mặt sông, lân múa, trẻ con rước đèn ông sao. */
   private startMidAutumn() {
     const st = this.state;
-    const spot = this.findMoonSpot();
-    this.moonSpot = spot;
+    const spot = this.findGatherSpot();
+    this.gatherSpot = spot;
     const x = spot.x * TILE + TILE / 2;
     const y = spot.y * TILE + TILE / 2;
     const at = { x, y };
@@ -1646,12 +1675,13 @@ export class GameScene extends Phaser.Scene {
   private endMidAutumn() {
     for (const d of this.moonDecor) d.destroy();
     this.moonDecor = [];
-    for (const { lamp, glow } of this.kidLamps.values()) {
+    for (const { lamp, glow, flame } of this.kidLamps.values()) {
       lamp.destroy();
       glow.destroy();
+      flame?.destroy();
     }
     this.kidLamps.clear();
-    this.moonSpot = null;
+    this.gatherSpot = null;
     for (const v of this.villagers) {
       if (v.stage === 'tre') v.remember('trungthu', '⭐', 'Được rước đèn ông sao đêm Trung thu', 2);
       else if (v.stage !== 'be') v.remember('trungthu', '🌕', 'Trông trăng phá cỗ cùng cả làng', 2);
@@ -1665,24 +1695,160 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  /** Đèn ông sao đi theo tay trẻ con đang rước đèn. */
+  /** Chiều ba mươi tháng Chạp: dựng cây nêu, cắm hoa đào, luộc bánh chưng, cả làng quây quần chờ giao thừa. */
+  private startTet() {
+    const st = this.state;
+    const spot = this.findGatherSpot();
+    this.gatherSpot = spot;
+    const x = spot.x * TILE + TILE / 2;
+    const y = spot.y * TILE + TILE / 2;
+
+    // Bánh chưng gói từ thóc (gạo nếp) và thịt trong kho, nhưng chừa lại đủ ăn.
+    const rice = Math.min(4, Math.max(0, st.res.thoc - 4));
+    const meat = Math.min(2, Math.max(0, st.res.thit - 2));
+    st.res.thoc -= rice;
+    st.res.thit -= meat;
+    this.banhChung = rice > 0;
+    if (this.banhChung) {
+      const pot = this.add.image(x, y + 8, 'banhPot').setOrigin(0.5, 1).setDepth(y + 8);
+      const steam = this.add
+        .particles(x, y - 22, 'smoke', {
+          speedY: { min: -32, max: -14 },
+          speedX: { min: -6, max: 6 },
+          lifespan: 1800,
+          scale: { start: 0.6, end: 1.8 },
+          alpha: { start: 0.45, end: 0 },
+          frequency: 240,
+        })
+        .setDepth(y + 9);
+      this.tetDecor.push(pot, steam);
+    }
+
+    this.clearSpring();
+    const neu = this.add.image(x + 46, y + 6, 'cayNeu').setOrigin(0.5, 1).setDepth(y + 6);
+    this.tweens.add({ targets: neu, angle: { from: -1.5, to: 1.5 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.springDecor.push(neu);
+    // Mỗi nếp nhà cắm một cây đào trước cửa.
+    for (const b of this.buildings.filter((b) => b.isHouse && b.built).slice(0, 12)) {
+      const px = b.px + (Math.random() < 0.5 ? -38 : 38);
+      this.springDecor.push(this.add.image(px, b.py + 4, 'peach').setOrigin(0.5, 1).setDepth(b.py + 4));
+    }
+
+    for (const v of this.villagers) v.addMood(6);
+    this.festivalDrum = 0;
+    this.sfx('bless', x, y);
+    st.log(
+      this.banhChung
+        ? `🧧 Tết đến rồi! Cả làng dựng cây nêu, cắm hoa đào, gói ${rice * 2} đòn bánh chưng${meat ? ' nhân thịt' : ''} chờ giao thừa`
+        : '🧧 Tết đến rồi! Kho chưa có thóc gói bánh chưng, nhưng cả làng vẫn dựng cây nêu, quây quần chờ giao thừa',
+      { x, y },
+    );
+    this.hud.banner('🧧', 'Tết Nguyên Đán', 'Chiều ba mươi tháng Chạp — dựng cây nêu, cắm hoa đào, canh nồi bánh chưng, cả làng thức đón giao thừa');
+  }
+
+  private endTet() {
+    for (const d of this.tetDecor) d.destroy();
+    this.tetDecor = [];
+    this.gatherSpot = null;
+    this.state.log('🌸 Đêm giao thừa tàn, cả làng đi ngủ — sáng mai mùng Một đi chúc Tết');
+  }
+
+  private clearSpring() {
+    for (const d of this.springDecor) d.destroy();
+    this.springDecor = [];
+  }
+
+  /** Nửa đêm sang tháng Giêng: giao thừa, pháo hoa rợp trời, ai cũng thêm một tuổi mới. */
+  private newYear() {
+    const st = this.state;
+    const spot = this.gatherSpot ?? this.homeTile;
+    const x = spot.x * TILE + TILE / 2;
+    const y = spot.y * TILE + TILE / 2;
+    for (let i = 0; i < 10; i++) {
+      this.time.delayedCall(i * 450 + Math.random() * 250, () => this.firework(x + Phaser.Math.Between(-220, 220), y - Phaser.Math.Between(80, 220)));
+    }
+    for (const v of this.villagers) {
+      v.addMood(12);
+      if (this.banhChung) v.hunger = Math.min(100, v.hunger + 30);
+      if (v.isChild && v.stage !== 'be') {
+        v.addMood(8);
+        v.remember('tet', '🧧', 'Được mừng tuổi ngày Tết', 3);
+      } else if (v.stage !== 'be') v.remember('tet', '🎆', 'Cùng cả làng đón giao thừa', 3);
+    }
+    const chief = this.chief();
+    chief?.announce('Chúc mừng năm mới cả làng! 🧧', 6000);
+    for (const v of this.villagers) if (v !== chief && v.stage !== 'be' && Math.random() < 0.5) v.say('Chúc mừng năm mới! 🧧', 4000);
+    this.addPhuc(20);
+    st.log(
+      `🎆 Giao thừa! Chúc mừng năm mới — làng bước sang năm thứ ${st.year}${this.banhChung ? ', cả nhà quây quần bóc bánh chưng' : ''}`,
+      { x, y },
+    );
+    this.hud.banner('🎆', `Chúc mừng năm mới — Năm ${st.year}`, 'An khang thịnh vượng, vạn sự như ý! Thành Hoàng được thêm Phúc.');
+  }
+
+  /** Một chùm pháo hoa nở trên bầu trời đêm. */
+  private firework(x: number, y: number) {
+    const tint = pick([0xff5a3a, 0xffd34a, 0x7fd0ff, 0xff8ad8, 0x9cff8a]);
+    this.sfx('firework', x, y);
+    const em = this.add
+      .particles(x, y, 'spark', {
+        speed: { min: 60, max: 150 },
+        lifespan: { min: 900, max: 1400 },
+        scale: { start: 1.6, end: 0 },
+        alpha: { start: 1, end: 0 },
+        gravityY: 60,
+        tint,
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      })
+      .setDepth(50006);
+    // Nổ sau tiếng rít bay lên (xem sfx 'firework').
+    this.time.delayedCall(550, () => em.explode(60));
+    this.time.delayedCall(2200, () => em.destroy());
+  }
+
+  /** Đèn ông sao của trẻ con rước đèn, bó đuốc của người đi bắt ếch đêm — đi theo tay người cầm. */
   private updateKidLamps() {
     for (const [v, l] of this.kidLamps) {
-      if (v.lantern && v.alive) continue;
+      if (v.light === l.kind && v.alive) continue;
       l.lamp.destroy();
       l.glow.destroy();
+      l.flame?.destroy();
       this.kidLamps.delete(v);
     }
     for (const v of this.villagers) {
-      if (!v.lantern) continue;
+      if (!v.light) continue;
       let l = this.kidLamps.get(v);
       if (!l) {
+        const torch = v.light === 'torch';
         l = {
-          lamp: this.add.image(0, 0, 'starLantern').setOrigin(0.5, 1),
-          glow: this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setTint(0xffb040).setScale(0.45).setDepth(50001),
+          kind: v.light,
+          lamp: this.add.image(0, 0, torch ? 'torch' : 'starLantern').setOrigin(0.5, 1),
+          glow: this.add
+            .image(0, 0, 'glow')
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setTint(torch ? 0xff8a30 : 0xffb040)
+            .setScale(torch ? 0.7 : 0.45)
+            .setDepth(50001),
+          flame: torch ? this.add.image(0, 0, 'flame').setOrigin(0.5, 1) : undefined,
           phase: Math.random() * 6,
         };
         this.kidLamps.set(v, l);
+      }
+      if (l.flame) {
+        // Cán đuốc cầm trên tay, nghiêng ra trước; ngọn lửa trên đầu cán bập bùng.
+        const dir = v.facingLeft ? -1 : 1;
+        const hx = v.x + 9 * dir;
+        const hy = v.y - 12;
+        const tilt = 14 * dir + Math.sin(this.realTime * 2 + l.phase) * 3;
+        const rad = Phaser.Math.DegToRad(tilt);
+        const tipX = hx + Math.sin(rad) * 28;
+        const tipY = hy - Math.cos(rad) * 28;
+        const flick = Math.sin(this.realTime * 17 + l.phase) * 0.08 + Math.sin(this.realTime * 7.3) * 0.05;
+        l.lamp.setPosition(hx, hy).setAngle(tilt).setDepth(v.y + 1).setVisible(!v.inside);
+        l.flame.setPosition(tipX, tipY + 3).setScale(0.6 - flick * 0.3, 0.65 + flick).setDepth(v.y + 2).setVisible(!v.inside);
+        l.glow.setPosition(tipX, tipY - 6).setAlpha(0.8 + flick).setVisible(!v.inside);
+        continue;
       }
       const sway = Math.sin(this.realTime * 3 + l.phase) * 8;
       l.lamp.setPosition(v.x + 9, v.y - 14).setAngle(sway).setDepth(v.y + 1).setVisible(!v.inside);
@@ -1837,10 +2003,10 @@ export class GameScene extends Phaser.Scene {
         } else st.log('🌤️ Trời tạnh mưa, cây cối xanh mướt');
       }
       this.simulateWorld(dt);
-      if ((this.festivalWas || this.midAutumnWas) && (this.festivalDrum -= dt) <= 0) {
+      if ((this.festivalWas || this.midAutumnWas || this.tetWas) && (this.festivalDrum -= dt) <= 0) {
         this.festivalDrum = 6;
         const dinh = this.festivalWas ? this.buildings.find((b) => b.id === 'dinh' && b.built) : null;
-        const m = this.moonSpot;
+        const m = this.gatherSpot;
         if (dinh) this.sfx('drum', dinh.px, dinh.py, 0.6);
         else if (m) this.sfx('drum', m.x * TILE, m.y * TILE, 0.6);
       }

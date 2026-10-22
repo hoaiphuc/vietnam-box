@@ -12,7 +12,8 @@ export type TraitId =
   | 'yeuThienNhien'
   | 'khoeManh'
   | 'vuiTinh'
-  | 'buongBinh';
+  | 'buongBinh'
+  | 'cuDem';
 
 export interface Trait {
   name: string;
@@ -53,6 +54,7 @@ export const TRAITS: Record<TraitId, Trait> = {
   khoeManh: { name: 'Khoẻ mạnh', icon: '🏋️', desc: 'Chặt cây giỏi, lâu mệt.', aff: { chat: 0.25, xay: 0.1 } },
   vuiTinh: { name: 'Vui tính', icon: '😄', desc: 'Lúc nào cũng vui vẻ, ít buồn.' },
   buongBinh: { name: 'Bướng bỉnh', icon: '😤', desc: 'Ít khi chịu nghe lời báo mộng.' },
+  cuDem: { name: 'Cú đêm', icon: '🦉', desc: 'Hay thức khuya: tối ra nằm võng trước nhà, hoặc soi đuốc ra bờ sông bắt ếch.' },
 };
 
 /** Chọn thêm `n` nét tính cách ngẫu nhiên, không trùng và không mâu thuẫn. */

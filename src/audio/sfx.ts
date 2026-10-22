@@ -26,7 +26,8 @@ export type SfxId =
   | 'pray'
   | 'bless'
   | 'thunder'
-  | 'drum';
+  | 'drum'
+  | 'firework';
 
 interface Recipe {
   /** Lượng vang (reverb). */
@@ -228,6 +229,17 @@ export const SFX: Record<SfxId, Recipe> = {
         e.tone(o, { f: 105 * k, f2: 52, t: t + dt, dur: 0.35, peak: 1 });
         e.noise(o, { t: t + dt, dur: 0.08, peak: 0.35, filter: { type: 'lowpass', f: 600 } });
       }
+    },
+  },
+  /** Pháo hoa giao thừa: tiếng rít bay lên, nổ "đoàng" rồi lách tách. */
+  firework: {
+    rev: 0.45,
+    gap: 0.15,
+    play: (e, o, t) => {
+      e.tone(o, { type: 'triangle', f: r(500, 700), f2: r(1600, 2200), t, dur: 0.55, peak: 0.05 });
+      const b = t + 0.55;
+      e.noise(o, { t: b, dur: 0.7, peak: 0.55, a: 0.004, filter: { type: 'lowpass', f: 2600, f2: 300 } });
+      for (let i = 0; i < 7; i++) e.noise(o, { t: b + 0.15 + i * 0.07 + r(0, 0.05), dur: 0.035, peak: 0.12, filter: { type: 'highpass', f: 3500 } });
     },
   },
   thunder: {

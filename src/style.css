@@ -1531,6 +1531,89 @@ h4 {
   line-height: 1.45;
 }
 
+/* ---------------------------------------------------------------- bộ sưu tập */
+
+.col-card {
+  width: min(720px, 100%);
+}
+
+.col-title {
+  margin: 12px 0 6px;
+}
+
+.col-title:first-child {
+  margin-top: 0;
+}
+
+.col-title small {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.col-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.col-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  text-align: center;
+}
+
+.col-item .ca {
+  height: 60px;
+  display: grid;
+  place-items: center;
+}
+
+.col-item img {
+  max-width: 76px;
+  max-height: 60px;
+  object-fit: contain;
+}
+
+.col-item .ce {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.col-item b {
+  font-size: 12.5px;
+}
+
+.col-item small {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* Chưa mở khóa: chỉ còn cái bóng. */
+.col-item.locked {
+  background: transparent;
+  border-style: dashed;
+}
+
+.col-item.locked img,
+.col-item.locked .ce {
+  filter: brightness(0);
+  opacity: 0.28;
+}
+
+.col-item.locked b {
+  color: var(--ink-soft);
+  letter-spacing: 2px;
+}
+
 /* Thanh trên cùng gọn lại khi có nhiều tài nguyên. */
 .topbar {
   gap: 10px;

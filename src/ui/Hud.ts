@@ -17,7 +17,7 @@ import {
   type JobId,
   type ResKey,
 } from '../data';
-import { DISC_ORDER, DISCOVERIES, ERAS } from '../discoveries';
+import { DISC_ORDER, DISCOVERIES, ERAS, type DiscId } from '../discoveries';
 import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
 import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
 import type { GameScene } from '../scenes/GameScene';
@@ -40,6 +40,18 @@ interface CardEls {
   hunger: HTMLElement;
   energy: HTMLElement;
   mood: HTMLElement;
+}
+
+/** Một món trong bộ sưu tập: có ảnh texture (công trình, nhà) hoặc biểu tượng (vật phẩm). */
+interface ColItem {
+  got: boolean;
+  tex?: string;
+  icon?: string;
+  name: string;
+  info: string;
+  tip: string;
+  /** Gợi ý cách mở khóa, hiện khi rê chuột vào món chưa có. */
+  hint: string;
 }
 
 function pad(n: number) {
@@ -73,6 +85,10 @@ export class Hud {
   private eraChip!: HTMLElement;
   private clockTags!: HTMLElement;
   private discKey = '-';
+  private colOverlay!: HTMLElement;
+  private colKey = '';
+  /** Ảnh dataURL của các texture trong game, để hiện trong bảng HTML. */
+  private texUrls = new Map<string, string>();
   private bannerTimer = 0;
   private detail: HTMLElement;
   private detailFor: Villager | null = null;
@@ -89,6 +105,7 @@ export class Hud {
         <div class="brand">🌾 <span>Làng Quê</span></div>
         <div class="clock"><span class="clock-icon">☀️</span><span class="clock-text"></span><span class="clock-tags"></span></div>
         <button class="era-chip" title="Thời kỳ của làng — nhấp để xem các phát kiến"></button>
+        <button class="era-chip col-btn" title="Bộ sưu tập — công trình, nhà ở và vật phẩm làng đã mở khóa">📚 <span class="col-count"></span></button>
         <div class="phuc" title="Điểm Phúc của Thành Hoàng — có được khi dân làng vui vẻ và thắp hương ở miếu">
           <span>🙏</span><div class="phuc-bar"><i></i></div><b class="phuc-text">0</b>
         </div>
@@ -146,6 +163,12 @@ export class Hud {
           <div class="tree-body disc-body"></div>
         </div>
       </div>
+      <div class="tree-overlay col-overlay" hidden>
+        <div class="tree-card panel col-card">
+          <div class="tree-head"><h3>📚 Bộ sưu tập <small class="col-sum"></small></h3><button class="close col-close" title="Đóng">✕</button></div>
+          <div class="tree-body col-body"></div>
+        </div>
+      </div>
       <div class="banner" hidden><span class="bn-icon"></span><div><b class="bn-title"></b><p class="bn-text"></p></div></div>
       <div class="tree-overlay hist-overlay" hidden>
         <div class="tree-card panel">
@@ -183,6 +206,7 @@ export class Hud {
             <li>📐 Quy hoạch chỗ xây, trưởng làng sẽ cho xây khi đủ gỗ</li>
             <li>🌳 Mỗi vòng ngày đêm là một tháng, 12 tháng là một năm: trẻ lớn lên, kết duyên, sinh con, già đi — xem Gia phả</li>
             <li>🥮 Rằm tháng Tám mỗi năm: trẻ con rước đèn ông sao, cả làng trông trăng phá cỗ</li>
+            <li>🧧 Tháng Chạp (tháng 12): Tết đến — cây nêu, hoa đào, bánh chưng, pháo hoa đêm giao thừa</li>
             <li>✋ Kéo chuột / WASD để di chuyển, cuộn chuột để phóng to</li>
             <li>⏸ Space tạm dừng · 1–5 đổi tốc độ (tới x15) · M tắt tiếng</li>
           </ul>
@@ -280,6 +304,16 @@ export class Hud {
     q(this.root, '.disc-close').addEventListener('click', () => (disc.hidden = true));
     disc.addEventListener('click', (e) => {
       if (e.target === disc) disc.hidden = true;
+    });
+
+    this.colOverlay = q(this.root, '.col-overlay');
+    q(this.root, '.col-btn').addEventListener('click', () => {
+      this.renderCollection();
+      this.colOverlay.hidden = false;
+    });
+    q(this.root, '.col-close').addEventListener('click', () => (this.colOverlay.hidden = true));
+    this.colOverlay.addEventListener('click', (e) => {
+      if (e.target === this.colOverlay) this.colOverlay.hidden = true;
     });
 
     const pw = q(this.root, '.powers');
@@ -477,6 +511,94 @@ export class Hud {
           </li>`;
         }).join('')}
       </ul>`;
+  }
+
+  private texUrl(key: string) {
+    let url = this.texUrls.get(key);
+    if (!url) {
+      url = (this.scene.textures.get(key).getSourceImage() as HTMLCanvasElement).toDataURL();
+      this.texUrls.set(key, url);
+    }
+    return url;
+  }
+
+  /** Mọi thứ trong bộ sưu tập: công trình, các kiểu nhà qua thời kỳ, vật phẩm. */
+  private collection(): { title: string; items: ColItem[] }[] {
+    const s = this.scene.state;
+    const ok = (need?: DiscId) => !need || s.has(need);
+    const hintOf = (need?: DiscId) => (need ? DISCOVERIES[need].hint : '');
+    const best = this.scene.bestHouseTier();
+    const houses = this.scene.buildings.filter((b) => b.isHouse && b.built);
+    return [
+      {
+        title: '🏗️ Công trình',
+        items: BUILD_ORDER.filter((id) => id !== 'nha').map((id) => {
+          const d = BUILDINGS[id];
+          const n = s.stats.built[id];
+          return { got: ok(d.needs), tex: id === 'ruong' ? 'ruong3' : d.tex, name: d.name, info: n ? `Đã xây ${n}` : 'Chưa xây', tip: d.desc, hint: hintOf(d.needs) };
+        }),
+      },
+      {
+        title: '🏠 Nhà ở qua các thời kỳ',
+        items: HOUSE_TIERS.map((t, i) => {
+          const n = houses.filter((b) => b.tier === i).length;
+          return { got: i <= best, tex: t.tex, name: t.name, info: n ? `${n} căn trong làng` : 'Chưa có căn nào', tip: t.desc, hint: hintOf(t.needs) };
+        }),
+      },
+      {
+        title: '🧺 Vật phẩm',
+        items: RES_ORDER.map((k) => {
+          const r = RESOURCES[k];
+          const need = RES_NEEDS[k];
+          return {
+            got: s.seenRes.has(k),
+            icon: r.icon,
+            name: r.name,
+            info: `Đang có ${s.res[k]}`,
+            tip: r.food ? `Ăn được — no bụng +${r.food}` : 'Vật liệu',
+            hint: need && !s.has(need) ? hintOf(need) : r.hint,
+          };
+        }),
+      },
+    ];
+  }
+
+  /** Bộ sưu tập: thứ đã mở khóa hiện đầy đủ; thứ chưa mở chỉ hiện bóng đen và "???". */
+  private renderCollection() {
+    const groups = this.collection();
+    const all = groups.flatMap((g) => g.items);
+    q(this.root, '.col-sum').textContent = `· đã mở khóa ${all.filter((e) => e.got).length}/${all.length}`;
+    q(this.root, '.col-body').innerHTML = groups
+      .map(
+        (g) => `<h4 class="col-title">${g.title} <small>${g.items.filter((e) => e.got).length}/${g.items.length}</small></h4>
+        <ul class="col-grid">${g.items
+          .map((e) => {
+            const art = e.tex ? `<img src="${this.texUrl(e.tex)}" alt="" />` : `<span class="ce">${e.icon}</span>`;
+            return e.got
+              ? `<li class="col-item" title="${e.tip}"><div class="ca">${art}</div><b>${e.name}</b><small>${e.info}</small></li>`
+              : `<li class="col-item locked" title="Chưa mở khóa — ${e.hint}"><div class="ca">${art}</div><b>???</b><small>Chưa mở khóa</small></li>`;
+          })
+          .join('')}</ul>`,
+      )
+      .join('');
+  }
+
+  /** Số món đã mở trên nút bộ sưu tập; bảng đang mở thì vẽ lại khi có thay đổi. */
+  private updateCollection() {
+    const s = this.scene.state;
+    for (const k of RES_ORDER) {
+      if (s.res[k] > 0 && !s.seenRes.has(k)) {
+        s.seenRes.add(k);
+        s.notify(`📚 Bộ sưu tập có thêm vật phẩm mới: ${RESOURCES[k].icon} ${RESOURCES[k].name}`);
+      }
+    }
+    const open = !this.colOverlay.hidden;
+    const key = `${[...s.discovered].join()}|${s.seenRes.size}|${open ? this.scene.buildings.length + RES_ORDER.map((k) => s.res[k]).join() : ''}`;
+    if (key === this.colKey) return;
+    this.colKey = key;
+    const all = this.collection().flatMap((g) => g.items);
+    q(this.root, '.col-count').textContent = `${all.filter((e) => e.got).length}/${all.length}`;
+    if (open) this.renderCollection();
   }
 
   /** Nghề, công trình, tài nguyên chưa có phát kiến thì ẩn đi. */
@@ -755,16 +877,18 @@ export class Hud {
     const part = h < 5 ? 'Đêm' : h < 11 ? 'Sáng' : h < 13 ? 'Trưa' : h < 17.5 ? 'Chiều' : h < 20 ? 'Chạng vạng' : 'Đêm';
     this.clockText.textContent = `${s.dateLabel(s.month)} · ${pad(hh)}:${pad(mm)}`;
     this.clockText.parentElement!.title = part;
-    this.clockIcon.textContent = this.scene.midAutumnOn() ? '🌕' : h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
+    this.clockIcon.textContent = this.scene.tetOn() ? '🧧' : this.scene.midAutumnOn() ? '🌕' :h >= 5 && h < 7 ? '🌅' : h < 17.5 && h >= 7 ? '☀️' : h >= 17.5 && h < 20 ? '🌇' : '🌙';
     const tags: string[] = [];
     if (s.raining) tags.push('🌧️ Mưa');
     else if (s.drought) tags.push('☀️ Hạn hán');
     if (this.scene.marketOn()) tags.push('🏮 Phiên chợ');
     if (this.scene.festivalOn()) tags.push('🥁 Hội làng');
     if (this.scene.midAutumnOn()) tags.push('🥮 Trung thu');
+    if (this.scene.tetOn()) tags.push('🧧 Tết');
     const tagText = tags.length ? ` · ${tags.join(' · ')}` : '';
     if (this.clockTags.textContent !== tagText) this.clockTags.textContent = tagText;
     this.updateUnlocks();
+    this.updateCollection();
     for (const b of this.speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === s.speed);
 
     this.syncCards();

@@ -120,6 +120,12 @@ const MOON_LINES = ['Ngắm trăng rằm 🌕', 'Bày mâm cỗ trông trăng �
 const ELDER_MOON_LINES = ['Kể chuyện chú Cuội cung trăng 🌕', 'Kể sự tích chị Hằng', 'Nhâm nhi trà, ngắm con cháu rước đèn ☕'];
 const MOON_CHAT = ['Trăng rằm năm nay tròn quá!', 'Bánh nướng thơm ghê', 'Kìa, chú Cuội ngồi gốc cây đa', 'Lân múa đẹp thật', 'Trăng sáng thế này, sang năm được mùa'];
 const PARADE_CHAT = ['Tết Trung thu rước đèn đi chơi 🎶', 'Đèn ông sao của tớ đẹp chưa!', 'Tùng dinh dinh, cắc tùng dinh! 🥁', 'Đi phá cỗ thôi các bạn ơi!', 'Em rước đèn này đến cung trăng 🌕'];
+const HAMMOCK_LINES = ['Nằm võng hóng gió đêm 🌙', 'Đung đưa võng nghe dế kêu', 'Nằm võng ngắm sao trời ✨', 'Đưa võng ầu ơ một mình'];
+const NIGHT_LINES = ['Đêm nay gió mát ghê…', 'Dế kêu rả rích', 'Cả xóm ngủ hết rồi', 'Sao trời nhiều quá', 'À ơi… ví dầu cầu ván đóng đinh'];
+const TET_LINES = ['Canh nồi bánh chưng 🔥', 'Gói bánh chưng lá dong', 'Bày mâm ngũ quả 🍊', 'Đi chúc Tết hàng xóm', 'Thắp nén hương ông bà ngày Tết'];
+const ELDER_TET_LINES = ['Viết câu đối đỏ 🧧', 'Mừng tuổi con cháu 🧧', 'Kể chuyện Tết ngày xưa', 'Nhâm nhi chén trà ngày Tết ☕'];
+const KID_TET_LINES = ['Được mừng tuổi 🧧', 'Mặc áo mới đi chơi Tết', 'Ngồi canh nồi bánh chưng', 'Ngóng xem pháo hoa 🎆'];
+const TET_CHAT = ['Chúc mừng năm mới!', 'An khang thịnh vượng nhé!', 'Bánh chưng sắp chín rồi', 'Năm mới vạn sự như ý', 'Sang năm làng mình được mùa to'];
 const MARKET_LINES =['Đi chợ phiên 🏮', 'Mặc cả mớ rau', 'Ngắm hàng làng bên', 'Mua cho con cái kẹo'];
 const MARKET_CHAT = ['Chum này đẹp ghê!', 'Bớt chút đi bà ơi', 'Hàng làng bên lạ quá', 'Phiên chợ hôm nay đông thật'];
 
@@ -160,10 +166,14 @@ export class Villager {
   bonds = new Map<Villager, number>();
   alive = true;
   deathTime = 0;
-  /** Đang cầm đèn ông sao rước đèn đêm Trung thu. */
-  lantern = false;
+  /** Đang cầm đèn ông sao (rước đèn Trung thu) hay bó đuốc (đi bắt ếch đêm). */
+  light: 'star' | 'torch' | null = null;
 
   private lastPray = -DAY_LENGTH;
+  /** Giờ đi ngủ của cú đêm (22:30–24:00); người thường ngủ lúc 21 giờ. */
+  private readonly owlBedtime = 22.5 + Math.random() * 1.5;
+  /** Đang nằm võng. */
+  private lounging = false;
   private stageKey: Stage | '' = '';
 
   private prefs = {} as Record<JobId, number>;
@@ -613,7 +623,13 @@ export class Villager {
     this.container.setPosition(this.x, this.y).setDepth(this.y).setVisible(!this.inside);
     const name = this.name;
     if (this.label.text !== name) this.label.setText(name);
-    if (this.moving) {
+    body.x = this.lounging ? 18 : 0;
+    if (this.lounging) {
+      // Nằm dài trên võng, đung đưa nhè nhẹ.
+      this.phase += dt * 1.6;
+      body.y = -10 + Math.sin(this.phase) * 1.2;
+      body.angle = -84;
+    } else if (this.moving) {
       this.phase += dt * 13;
       body.y = 2 - Math.abs(Math.sin(this.phase)) * 3;
       body.angle = 0;
@@ -697,6 +713,11 @@ export class Villager {
     return false;
   }
 
+  /** Đang quay mặt sang trái. */
+  get facingLeft() {
+    return this.body.flipX;
+  }
+
   private face(px: number) {
     this.body.setFlipX(px < this.x);
   }
@@ -722,9 +743,23 @@ export class Villager {
     return true;
   }
 
+  /** Cú đêm (từ 10 tuổi) thức khuya hơn người khác. */
+  get nightOwl() {
+    return this.has('cuDem') && this.age >= 10;
+  }
+
+  /** Đến giờ đi ngủ của riêng người này: cú đêm ngủ muộn hơn giờ ngủ chung của làng. */
+  private sleepy() {
+    const st = this.scene.state;
+    if (!st.isSleepTime()) return false;
+    if (!this.nightOwl) return true;
+    const h = st.hour;
+    return h >= this.owlBedtime || h < 5;
+  }
+
   /** Nên dừng việc đang làm: trời tối, kiệt sức hoặc đói lả. */
   private mustStop() {
-    return this.scene.state.isSleepTime() || this.energy < 8 || (this.hunger < 20 && this.scene.hasFood());
+    return this.sleepy() || this.energy < 8 || (this.hunger < 20 && this.scene.hasFood());
   }
 
   /** Làm việc trong `sec` giây; có `sound` thì phát đều đặn mỗi `every` giây. */
@@ -773,7 +808,7 @@ export class Villager {
     const h = s.state.hour;
     const evening = h >= 18 && h < 21;
     const fireEvening = evening && !!s.nearestBuilt('lua', this.x, this.y);
-    const festive = s.festivalOn() || s.midAutumnOn();
+    const festive = s.festivalOn() || s.midAutumnOn() || s.tetOn();
     const opts: Option[] = [];
     for (const j of ACT_ORDER) {
       if (!canDo(this.stage, this.age, j)) continue;
@@ -828,6 +863,8 @@ export class Villager {
     if (j === 'nghi' && this.scene.festivalOn()) return 'Hội làng mở rồi, ra đình trẩy hội thôi! 🥁';
     if (j === 'nghi' && this.scene.midAutumnOn())
       return this.stage === 'tre' ? 'Trung thu rồi, đi rước đèn ông sao thôi! ⭐' : 'Trăng rằm lên rồi, ra bày cỗ trông trăng thôi! 🥮';
+    if (j === 'nghi' && this.scene.tetOn())
+      return this.stage === 'tre' ? 'Tết rồi! Mặc áo mới, chờ được mừng tuổi 🧧' : 'Tết đến rồi, ra canh nồi bánh chưng chờ giao thừa thôi! 🧧';
     if (j === 'nghi' && fireEvening) return 'Tối rồi, ra ngồi bên bếp lửa với cả nhà';
     if (j !== 'nghi' && this.boredom() > 0.25) return 'Ngồi mãi cũng chán, đi làm gì đó thôi';
     if (need >= 0.6) return NEED_LINES[j];
@@ -845,13 +882,19 @@ export class Villager {
   private *think(): Beh {
     if (this.carry) return yield* this.deliver();
     const st = this.scene.state;
-    if (st.isSleepTime() || this.energy < 10) {
-      this.thinkOnce('sleep', st.isSleepTime() ? 'Khuya rồi, đi ngủ thôi' : 'Mệt rã rời, phải chợp mắt một lát');
+    if (this.sleepy() || this.energy < 10) {
+      this.thinkOnce('sleep', this.sleepy() ? 'Khuya rồi, đi ngủ thôi' : 'Mệt rã rời, phải chợp mắt một lát');
       return yield* this.sleep();
     }
     if (this.hunger < this.hungerLine() && this.scene.hasFood()) {
       this.thinkOnce('eat', this.hunger < 15 ? 'Đói lả rồi, về ăn ngay thôi!' : 'Bụng đói rồi, về ăn chút gì');
       return yield* this.eat();
+    }
+    // Cả làng đã ngủ mà cú đêm còn thức: nằm võng hóng mát, hoặc soi đuốc đi bắt ếch.
+    if (this.nightOwl && st.isSleepTime()) {
+      const frog = this.stage !== 'gia' && Math.random() < 0.5;
+      this.thinkOnce(frog ? 'ech' : 'vong', frog ? 'Đêm nay ếch kêu ran, đi soi ếch thôi! 🐸' : 'Còn sớm, ra võng nằm hóng gió đã');
+      return yield* (frog ? this.frog() : this.hammock());
     }
 
     const pick = this.decide();
@@ -957,21 +1000,27 @@ export class Villager {
     const s = this.scene;
     const h = s.state.hour;
     const fire = s.nearestBuilt('lua', this.x, this.y);
-    const moon = s.midAutumnOn() ? s.moonSpot : null;
+    const moon = s.midAutumnOn() ? s.gatherSpot : null;
     if (moon && this.stage === 'tre') return yield* this.parade(moon);
+    const tet = s.tetOn() ? s.gatherSpot : null;
+    // Trung thu / Tết: cả làng tụ về một chỗ.
+    const gather = moon ?? tet;
     const dinh = s.festivalOn() ? s.nearestBuilt('dinh', this.x, this.y) : null;
     const cho = s.marketOn() && this.stage !== 'be' && Math.random() < 0.6 ? s.nearestBuilt('cho', this.x, this.y) : null;
-    const fireEvening = !dinh && !moon && !!fire && h >= 18 && h < 21;
-    // Ngày hội / phiên chợ / Trung thu: tụ tập đông, trò chuyện rôm rả hơn.
+    const fireEvening = !dinh && !gather && !!fire && h >= 18 && h < 21;
+    // Ngày hội / phiên chợ / lễ Tết: tụ tập đông, trò chuyện rôm rả hơn.
     const crowd = dinh ?? cho;
-    const festive = !!dinh || !!moon;
-    if (moon) {
-      this.status = 'Ra trông trăng phá cỗ';
-      const tx = moon.x + Phaser.Math.Between(-3, 3);
-      const ty = moon.y + Phaser.Math.Between(-1, 2);
+    const festive = !!dinh || !!gather;
+    if (gather) {
+      this.status = moon ? 'Ra trông trăng phá cỗ' : 'Ra quây quần đón Tết';
+      const tx = gather.x + Phaser.Math.Between(-3, 3);
+      const ty = gather.y + Phaser.Math.Between(-1, 2);
       const ok = s.isFree(tx, ty) && (yield* this.walkTo(tx, ty, 0.8));
-      if (ok) this.face(moon.x * TILE + TILE / 2);
-      const lines = this.stage === 'gia' ? ELDER_MOON_LINES : MOON_LINES;
+      if (ok) this.face(gather.x * TILE + TILE / 2);
+      const st = this.stage;
+      const lines = moon
+        ? st === 'gia' ? ELDER_MOON_LINES : MOON_LINES
+        : st === 'gia' ? ELDER_TET_LINES : st === 'tre' || st === 'be' ? KID_TET_LINES : TET_LINES;
       this.status = lines[Math.floor(Math.random() * lines.length)];
     } else if (crowd) {
       this.status = dinh ? 'Ra đình trẩy hội' : 'Đi chợ phiên';
@@ -1002,12 +1051,12 @@ export class Villager {
 
     let t = 0;
     let chat = 2 + Math.random() * 3;
-    const dur = fireEvening || crowd || moon ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
+    const dur = fireEvening || crowd || gather ? 8 + Math.random() * 6 : 3 + Math.random() * 5;
     while (t < dur) {
       const dt: number = yield;
       t += dt;
       this.relaxing = true;
-      this.byFire = fireEvening || !!crowd || !!moon;
+      this.byFire = fireEvening || !!crowd || !!gather;
       if (festive) this.addMood(dt * 0.4);
       this.idleTime += dt;
       this.energy = Math.min(100, this.energy + dt * ENERGY_DRAIN * 1.5);
@@ -1019,7 +1068,7 @@ export class Villager {
         if (friend && Math.random() < 0.6 && this.stage !== 'be') {
           // Hai người độc thân đã thân nhau thì nói chuyện ngọt ngào hơn.
           const sweet = s.canCourt(this, friend) && this.bond(friend) >= 35;
-          const lines = sweet ? SWEET_LINES : moon ? MOON_CHAT : dinh ? FESTIVAL_CHAT : cho ? MARKET_CHAT : CHAT_LINES;
+          const lines = sweet ? SWEET_LINES : moon ? MOON_CHAT : tet ? TET_CHAT : dinh ? FESTIVAL_CHAT : cho ? MARKET_CHAT : CHAT_LINES;
           this.say(lines[Math.floor(Math.random() * lines.length)], 3500);
           this.addMood(2);
           s.addBond(this, friend, festive ? 10 : fireEvening || cho ? 7 : 4);
@@ -1033,7 +1082,7 @@ export class Villager {
   /** Đêm Trung thu: trẻ con cầm đèn ông sao rước quanh mâm cỗ, ríu rít với nhau. */
   private *parade(spot: Pt): Beh {
     const s = this.scene;
-    this.lantern = true;
+    this.light = 'star';
     try {
       for (let i = 0; i < 4 && s.midAutumnOn(); i++) {
         this.status = 'Rước đèn ông sao ⭐';
@@ -1044,13 +1093,96 @@ export class Villager {
         if (s.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.75);
         this.addMood(2);
         this.idleTime = 0;
-        const pal = s.villagers.find((o) => o !== this && o.lantern && Phaser.Math.Distance.Between(o.x, o.y, this.x, this.y) < 110);
+        const pal = s.villagers.find((o) => o !== this && o.light === 'star' && Phaser.Math.Distance.Between(o.x, o.y, this.x, this.y) < 110);
         if (pal) s.addBond(this, pal, 6);
         if (Math.random() < 0.5) this.say(PARADE_CHAT[Math.floor(Math.random() * PARADE_CHAT.length)], 3000);
         if (this.mustStop()) return;
       }
     } finally {
-      this.lantern = false;
+      this.light = null;
+    }
+  }
+
+  /** Cú đêm mắc võng trước nhà, nằm đung đưa nghe dế kêu cho tới giờ ngủ. */
+  private *hammock(): Beh {
+    const s = this.scene;
+    this.activity = 'nghi';
+    this.status = 'Ra trước nhà mắc võng';
+    const h = this.homeSpot();
+    const tx = h.x + (Math.random() < 0.5 ? -2 : 2);
+    const ty = h.y + 1;
+    if (s.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.7);
+    const vong = s.add.image(this.x, this.y + 2, 'hammock').setOrigin(0.5, 1).setDepth(this.y - 1);
+    s.tweens.add({ targets: vong, angle: { from: -2, to: 2 }, duration: 1900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.lounging = true;
+    this.status = HAMMOCK_LINES[Math.floor(Math.random() * HAMMOCK_LINES.length)];
+    try {
+      let t = 0;
+      let chat = 5 + Math.random() * 5;
+      const dur = 20 + Math.random() * 15;
+      while (t < dur) {
+        const dt: number = yield;
+        t += dt;
+        this.relaxing = true;
+        this.idleTime = 0;
+        this.energy = Math.min(100, this.energy + dt * ENERGY_DRAIN * 1.2);
+        if ((chat -= dt) <= 0) {
+          chat = 10 + Math.random() * 8;
+          this.say(NIGHT_LINES[Math.floor(Math.random() * NIGHT_LINES.length)], 3500);
+        }
+        if (this.mustStop()) break;
+      }
+    } finally {
+      this.lounging = false;
+      s.tweens.killTweensOf(vong);
+      vong.destroy();
+    }
+  }
+
+  /** Cú đêm cầm đuốc lần dọc bờ sông soi ếch: đi vài bước, thấy ếch thì cúi xuống chộp — ếch mang về kho làm thịt. */
+  private *frog(): Beh {
+    const s = this.scene;
+    const start = s.findFishingSpot(this.x, this.y);
+    if (!start) return yield* this.hammock();
+    this.activity = 'san';
+    this.light = 'torch';
+    try {
+      this.status = 'Cầm đuốc ra bờ sông soi ếch 🔥';
+      if (!(yield* this.walkTo(start.x, start.y, 0.8))) return;
+      let at = start;
+      let caught = 0;
+      for (let i = 0; i < 6; i++) {
+        // Lần sang một khúc bờ gần đó.
+        const near = s.fishingSpots.filter((p) => p !== at && Math.abs(p.x - at.x) + Math.abs(p.y - at.y) <= 6);
+        if (near.length) {
+          at = near[Math.floor(Math.random() * near.length)];
+          this.status = 'Soi đuốc lần dọc bờ sông 🔥';
+          if (!(yield* this.walkTo(at.x, at.y, 0.5))) break;
+        }
+        if (this.mustStop()) break;
+        this.face(at.wx * TILE + TILE / 2);
+        this.status = 'Thấy ếch, rón rén chộp 🐸';
+        if (!(yield* this.workFor((1.4 + Math.random()) / this.eff('san')))) break;
+        if (Math.random() < 0.4 + 0.04 * this.skills.san.level) {
+          caught++;
+          s.sfx('catch', this.x, this.y);
+          s.floatText(this.x, this.y - 48, '🐸', '#fff');
+          this.gainXp('san', 2);
+        } else {
+          s.floatText(this.x, this.y - 48, 'ộp ộp…', '#fff');
+        }
+      }
+      if (caught) {
+        this.carry = { res: 'thit', amount: caught };
+        this.addMood(3);
+        this.say(caught >= 3 ? 'Được cả xâu ếch, mai nấu cháo ếch thôi! 🐸' : 'Bắt được mấy chú ếch béo 🐸');
+      }
+      if (caught >= 3) {
+        this.remember('ech', '🐸', 'Một đêm soi được cả xâu ếch', 1, { san: 0.1 });
+        s.state.log(`🐸 ${this.name} thức khuya soi đuốc bắt được ${caught} con ếch`, { x: this.x, y: this.y });
+      }
+    } finally {
+      this.light = null;
     }
   }
 
