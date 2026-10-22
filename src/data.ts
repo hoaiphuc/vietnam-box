@@ -13,7 +13,8 @@ export type ResKey =
   | 'caNuong'
   | 'thoc'
   | 'com'
-  | 'gom';
+  | 'gom'
+  | 'doDan';
 
 export interface ResInfo {
   name: string;
@@ -38,10 +39,11 @@ export const RESOURCES: Record<ResKey, ResInfo> = {
   thoc: { name: 'Thóc', icon: '🌾', hint: 'Gặt lúa chín ngoài ruộng…' },
   com: { name: 'Cơm', icon: '🍚', food: 45, hint: 'Thổi từ thóc bên đống lửa…' },
   gom: { name: 'Đồ gốm', icon: '🏺', hint: 'Nặn đất sét rồi nung trong lò…' },
+  doDan: { name: 'Đồ đan', icon: '🧺', hint: 'Chẻ tre vót nan, đan rổ rá, chằm nón lá…' },
 };
 
 /** Vật liệu dựng nhà cửa, làm đồ dùng. */
-export const MATERIAL_ORDER: ResKey[] = ['go', 'tre', 'rom', 'dat', 'gach', 'gom'];
+export const MATERIAL_ORDER: ResKey[] = ['go', 'tre', 'rom', 'dat', 'gach', 'gom', 'doDan'];
 /** Lương thực: đồ sống và đồ đã nấu. */
 export const FOOD_RES_ORDER: ResKey[] = ['chuoi', 'thitNuong', 'caNuong', 'com', 'thit', 'ca', 'thoc'];
 export const RES_ORDER: ResKey[] = [...MATERIAL_ORDER, ...FOOD_RES_ORDER];
@@ -54,6 +56,7 @@ export const RES_NEEDS: Partial<Record<ResKey, DiscId>> = {
   gom: 'gom',
   dat: 'gom',
   gach: 'gom',
+  doDan: 'dan',
 };
 
 /** Giá vật liệu dạng HTML: mỗi món "16 🪵" là một khối không bị ngắt dòng. */
@@ -69,31 +72,32 @@ export function costWords(cost: Partial<Record<ResKey, number>>) {
 /** Thứ tự ưu tiên khi ăn. */
 export const FOOD_ORDER: ResKey[] = ['thitNuong', 'com', 'caNuong', 'chuoi'];
 
-export type JobId = 'nghi' | 'chat' | 'san' | 'ca' | 'hai' | 'cay' | 'nau' | 'nung' | 'xay' | 'le';
+export type JobId = 'nghi' | 'chat' | 'san' | 'ca' | 'hai' | 'cay' | 'nau' | 'nung' | 'dan' | 'xay' | 'le';
 
 export const JOBS: Record<JobId, { name: string; icon: string; desc: string }> = {
   nghi: { name: 'Nghỉ ngơi', icon: '🍵', desc: 'Thong thả dạo quanh nhà, hồi sức.' },
   chat: { name: 'Chặt cây', icon: '🪓', desc: 'Đốn cây lấy gỗ, chặt tre về dựng nhà.' },
   san: { name: 'Săn bắt', icon: '🏹', desc: 'Bắt gà rừng, heo rừng lấy thịt.' },
   ca: { name: 'Đánh cá', icon: '🎣', desc: 'Ra bờ sông câu cá.' },
-  hai: { name: 'Hái lượm', icon: '🧺', desc: 'Hái chuối quanh làng và ven sông.' },
+  hai: { name: 'Hái lượm', icon: '🍌', desc: 'Hái chuối quanh làng và ven sông — có rổ rá đan sẵn thì đựng được nhiều hơn.' },
   cay: { name: 'Làm ruộng', icon: '🌾', desc: 'Cấy lúa, gặt thóc ngoài ruộng — gặt xong còn có rơm.' },
   nau: { name: 'Nấu nướng', icon: '🔥', desc: 'Nướng thịt cá, thổi cơm bên đống lửa.' },
   nung: { name: 'Làm gốm', icon: '🏺', desc: 'Đào đất sét ven sông, nung gốm và gạch ngói ở lò.' },
+  dan: { name: 'Đan lát', icon: '🪢', desc: 'Chẻ tre vót nan, đan rổ rá, thúng mủng, chằm nón lá — dùng trong nhà và mang ra chợ đổi.' },
   xay: { name: 'Xây dựng', icon: '🔨', desc: 'Dựng nhà, đóng lửa, làm kho.' },
   le: { name: 'Thắp hương', icon: '🙏', desc: 'Ra miếu thắp hương, cầu khấn Thành Hoàng.' },
 };
 
 /** Nghề chỉ làm được khi làng đã có phát kiến tương ứng. */
-export const JOB_NEEDS: Partial<Record<JobId, DiscId>> = { cay: 'ruong', nung: 'gom' };
+export const JOB_NEEDS: Partial<Record<JobId, DiscId>> = { cay: 'ruong', nung: 'gom', dan: 'dan' };
 
 /** Các việc có thể báo mộng. */
-export const JOB_ORDER: JobId[] = ['nghi', 'chat', 'san', 'ca', 'hai', 'cay', 'nau', 'nung', 'xay'];
+export const JOB_ORDER: JobId[] = ['nghi', 'chat', 'san', 'ca', 'hai', 'cay', 'nau', 'nung', 'dan', 'xay'];
 /** Mọi hoạt động dân làng tự cân nhắc. */
 export const ACT_ORDER: JobId[] = [...JOB_ORDER, 'le'];
-export const SKILL_JOBS: JobId[] = ['chat', 'san', 'ca', 'hai', 'cay', 'nau', 'nung', 'xay'];
+export const SKILL_JOBS: JobId[] = ['chat', 'san', 'ca', 'hai', 'cay', 'nau', 'nung', 'dan', 'xay'];
 
-export type BuildingId = 'lua' | 'nha' | 'kho' | 'mieu' | 'ruong' | 'lo' | 'cho' | 'dinh';
+export type BuildingId = 'lua' | 'nha' | 'kho' | 'mieu' | 'ruong' | 'chuong' | 'lo' | 'cho' | 'dinh';
 
 export interface BuildingDef {
   name: string;
@@ -180,6 +184,18 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     flat: true,
     needs: 'ruong',
   },
+  chuong: {
+    name: 'Chuồng trâu',
+    icon: '🐃',
+    desc: 'Nuôi một con trâu: trâu kéo cày cho ruộng tốt, lúa lên nhanh, nhiều hạt; trẻ con dắt trâu đi chăn.',
+    w: 2,
+    h: 2,
+    cost: { go: 12, tre: 8, rom: 6 },
+    work: 18,
+    tex: 'chuong',
+    oy: 4,
+    needs: 'trau',
+  },
   lo: {
     name: 'Lò gốm',
     icon: '🏺',
@@ -218,7 +234,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
 };
 
-export const BUILD_ORDER: BuildingId[] = ['lua', 'mieu', 'kho', 'nha', 'ruong', 'lo', 'cho', 'dinh'];
+export const BUILD_ORDER: BuildingId[] = ['lua', 'mieu', 'kho', 'nha', 'ruong', 'chuong', 'lo', 'cho', 'dinh'];
 
 export type Cost = Partial<Record<ResKey, number>>;
 

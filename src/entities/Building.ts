@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { TILE } from '../config';
 import { BUILDINGS, HOUSE_TIERS, type BuildingDef, type BuildingId, type Cost } from '../data';
+import type { SavedBuilding } from '../save';
 import type { GameScene } from '../scenes/GameScene';
 
 /** built: đã xây xong · site: đang xây · planned: Thành Hoàng mới đánh dấu, chờ làng đủ gỗ. */
@@ -22,6 +23,8 @@ export class Building {
   crop = 0;
   /** Lúa lớn tới đâu (0..1) khi đang ở giai đoạn 1–2. */
   growth = 0;
+  /** Ruộng đã được trâu cày: lúa lên nhanh hơn, gặt nhiều thóc hơn (hết khi gặt). */
+  plowed = false;
   /** Người đang làm ở đây (ruộng) — tránh hai người cùng tới. */
   reservedBy: object | null = null;
 
@@ -98,6 +101,22 @@ export class Building {
     this.drawBar();
   }
 
+  toSave(): SavedBuilding {
+    const { id, tx, ty, built, planned, progress, tier, upgrading, crop, growth, plowed } = this;
+    return { id, tx, ty, built, planned, progress, tier, upgrading, crop, growth, plowed };
+  }
+
+  /** Khôi phục tiến độ xây / sửa và ruộng lúa từ bản lưu (vị trí, kiểu nhà đã có lúc dựng lại). */
+  restore(s: SavedBuilding) {
+    this.progress = s.progress;
+    this.upgrading = s.upgrading;
+    this.crop = s.crop;
+    this.growth = s.growth;
+    this.plowed = !!s.plowed;
+    if (this.isField) this.sprite.setTexture(this.crop === 0 && this.plowed ? 'ruongCay' : `ruong${this.crop}`);
+    this.drawBar();
+  }
+
   tiles() {
     const out: { x: number; y: number }[] = [];
     for (let y = 0; y < this.def.h; y++) for (let x = 0; x < this.def.w; x++) out.push({ x: this.tx + x, y: this.ty + y });
@@ -142,6 +161,12 @@ export class Building {
     return this.isField && this.built && (this.crop === 0 || this.crop === 3);
   }
 
+  /** Trâu kéo cày xong: đất lật thành luống, chờ cấy. */
+  plow() {
+    this.plowed = true;
+    if (this.crop === 0) this.sprite.setTexture('ruongCay');
+  }
+
   plant() {
     this.crop = 1;
     this.growth = 0;
@@ -167,6 +192,7 @@ export class Building {
   harvest() {
     this.crop = 0;
     this.growth = 0;
+    this.plowed = false;
     this.sprite.setTexture('ruong0');
   }
 

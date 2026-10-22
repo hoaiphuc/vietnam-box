@@ -27,7 +27,8 @@ export type SfxId =
   | 'bless'
   | 'thunder'
   | 'drum'
-  | 'firework';
+  | 'firework'
+  | 'bark';
 
 interface Recipe {
   /** Lượng vang (reverb). */
@@ -228,6 +229,17 @@ export const SFX: Record<SfxId, Recipe> = {
       ]) {
         e.tone(o, { f: 105 * k, f2: 52, t: t + dt, dur: 0.35, peak: 1 });
         e.noise(o, { t: t + dt, dur: 0.08, peak: 0.35, filter: { type: 'lowpass', f: 600 } });
+      }
+    },
+  },
+  /** Chó sủa "gâu gâu". */
+  bark: {
+    rev: 0.15,
+    gap: 1.2,
+    play: (e, o, t) => {
+      for (const dt of [0, 0.22]) {
+        e.tone(o, { type: 'sawtooth', f: r(420, 480), f2: 260, t: t + dt, dur: 0.11, peak: 0.12, filter: { type: 'lowpass', f: 1400 } });
+        e.noise(o, { t: t + dt, dur: 0.07, peak: 0.08, filter: { type: 'bandpass', f: 900 } });
       }
     },
   },

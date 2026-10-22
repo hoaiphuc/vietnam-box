@@ -47,8 +47,8 @@ export function randomName(g: Gender, taken: Set<string>) {
   return pick(pool.length ? pool : g === 'nam' ? MALE_NAMES : FEMALE_NAMES);
 }
 
-/** Người già: ham nghỉ, ham lên miếu, ngại việc nặng. */
-export const ELDER_AFF: Partial<Record<JobId, number>> = { nghi: 0.25, le: 0.25, chat: -0.2, san: -0.4, xay: -0.15 };
+/** Người già: ham nghỉ, ham lên miếu, ngồi đan lát; ngại việc nặng. */
+export const ELDER_AFF: Partial<Record<JobId, number>> = { nghi: 0.25, le: 0.25, dan: 0.3, chat: -0.2, san: -0.4, xay: -0.15 };
 /** Trẻ con: ham chơi, chưa được đi săn. */
 export const CHILD_AFF: Partial<Record<JobId, number>> = { san: -0.5, xay: -0.15, nghi: 0.2, hai: 0.1 };
 

@@ -221,12 +221,17 @@ h4 {
   position: relative;
 }
 
-.snd-btn {
+.snd-btn,
+.save-btn {
   width: 34px;
   height: 28px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.save-btn:hover {
+  border-color: var(--accent);
 }
 
 .snd-pop {
@@ -1195,6 +1200,31 @@ h4 {
 .start:active {
   transform: translateY(2px);
   box-shadow: 0 2px 0 #a85f18;
+}
+
+.resume {
+  padding: 10px 14px;
+  background: var(--paper-2);
+  border-radius: 10px;
+}
+
+.resume small {
+  color: var(--ink-soft);
+}
+
+.new-game {
+  display: block;
+  margin: 10px auto 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  text-decoration: underline;
+}
+
+.new-game.confirm {
+  color: #b02a20;
+  font-weight: 700;
 }
 
 /* ---------------------------------------------------------------- đoạn mở đầu */

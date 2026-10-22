@@ -4,11 +4,13 @@ import { DAY_LENGTH, ENERGY_DRAIN, FONT, HUNGER_RATE, SLEEP_RATE, TILE, YEAR_LEN
 import { ACT_ORDER, JOBS, RESOURCES, SKILL_JOBS, type JobId, type ResKey } from '../data';
 import { canDo, CHILD_AFF, ELDER_AFF, stageOf, type Gender, type Palette, type Stage } from '../life';
 import { WISHES, type WishType } from '../powers';
-import type { FishingSpot, GameScene } from '../scenes/GameScene';
+import type { SavedVillager } from '../save';
+import type { FishingSpot, GameScene, OAnQuanBoard } from '../scenes/GameScene';
 import { TRAITS, type TraitId } from '../traits';
 import type { NodeKind } from '../world/mapgen';
 import type { Pt } from '../world/pathfinding';
 import { personTexture } from '../world/textures';
+import type { Buffalo } from './Buffalo';
 import type { Building } from './Building';
 
 /** Hành vi: mỗi `yield` là một khung hình, giá trị nhận lại là dt (giây game). */
@@ -63,6 +65,7 @@ const NEED_LINES: Record<JobId, string> = {
   hai: 'Sắp hết cái ăn rồi, đi hái chuối',
   cay: 'Lúa chín vàng đồng rồi, ra gặt kẻo rụng',
   nung: 'Làng cần thêm gạch ngói, chum vại — nhóm lò thôi',
+  dan: 'Nhà thiếu rổ rá, nón lá rồi, ngồi đan thôi',
   nau: 'Thịt cá sống còn nhiều, đem nướng kẻo hỏng',
   xay: 'Phải dựng cho xong công trình đã',
   nghi: 'Mệt quá, phải nghỉ một lát',
@@ -75,6 +78,7 @@ const LIKE_LINES: Record<JobId, string> = {
   hai: 'Đi hái lượm, ngắm cây cỏ thích ghê',
   cay: 'Ra đồng lội ruộng, thơm mùi lúa non',
   nung: 'Nặn đất sét thành chum thành vại, vui tay ghê',
+  dan: 'Ngồi vót nan đan rổ, thong thả mà khéo tay',
   nau: 'Nướng đồ ăn cho cả nhà là vui nhất',
   xay: 'Thích tự tay dựng nhà dựng cửa',
   nghi: 'Thong thả chút cho đời thêm vui',
@@ -87,6 +91,7 @@ const CASUAL_LINES: Record<JobId, string> = {
   hai: 'Đi xem chuối chín chưa',
   cay: 'Ra thăm đồng một chút',
   nung: 'Nung thêm một mẻ ở lò',
+  dan: 'Đan thêm cái rổ, cái nón để dành',
   nau: 'Nướng thêm ít đồ ăn',
   xay: 'Phụ một tay xây dựng',
   nghi: 'Hôm nay thong thả một chút',
@@ -120,7 +125,10 @@ const MOON_LINES = ['Ngắm trăng rằm 🌕', 'Bày mâm cỗ trông trăng �
 const ELDER_MOON_LINES = ['Kể chuyện chú Cuội cung trăng 🌕', 'Kể sự tích chị Hằng', 'Nhâm nhi trà, ngắm con cháu rước đèn ☕'];
 const MOON_CHAT = ['Trăng rằm năm nay tròn quá!', 'Bánh nướng thơm ghê', 'Kìa, chú Cuội ngồi gốc cây đa', 'Lân múa đẹp thật', 'Trăng sáng thế này, sang năm được mùa'];
 const PARADE_CHAT = ['Tết Trung thu rước đèn đi chơi 🎶', 'Đèn ông sao của tớ đẹp chưa!', 'Tùng dinh dinh, cắc tùng dinh! 🥁', 'Đi phá cỗ thôi các bạn ơi!', 'Em rước đèn này đến cung trăng 🌕'];
-const HAMMOCK_LINES = ['Nằm võng hóng gió đêm 🌙', 'Đung đưa võng nghe dế kêu', 'Nằm võng ngắm sao trời ✨', 'Đưa võng ầu ơ một mình'];
+const HERD_LINES = ['Đi chăn trâu thôi nghé ơi 🐃', 'Ngồi lưng trâu cao ghê!', 'Trâu ơi ta bảo trâu này…', 'Ra bãi cỏ ven sông nào!'];
+const KITE_LINES =['Thả diều 🪁', 'Diều lên cao vút rồi! 🪁', 'Giật dây cho diều bay cao 🪁', 'Ngửa cổ ngắm diều 🪁'];
+const OAQ_LINES = ['Ăn quan rồi nhé!', 'Đến lượt tớ rải!', 'Ô này còn năm quân', 'Tớ sắp thắng rồi!', 'Hết quân rồi, rải lại thôi'];
+const HAMMOCK_LINES =['Nằm võng hóng gió đêm 🌙', 'Đung đưa võng nghe dế kêu', 'Nằm võng ngắm sao trời ✨', 'Đưa võng ầu ơ một mình'];
 const NIGHT_LINES = ['Đêm nay gió mát ghê…', 'Dế kêu rả rích', 'Cả xóm ngủ hết rồi', 'Sao trời nhiều quá', 'À ơi… ví dầu cầu ván đóng đinh'];
 const TET_LINES = ['Canh nồi bánh chưng 🔥', 'Gói bánh chưng lá dong', 'Bày mâm ngũ quả 🍊', 'Đi chúc Tết hàng xóm', 'Thắp nén hương ông bà ngày Tết'];
 const ELDER_TET_LINES = ['Viết câu đối đỏ 🧧', 'Mừng tuổi con cháu 🧧', 'Kể chuyện Tết ngày xưa', 'Nhâm nhi chén trà ngày Tết ☕'];
@@ -168,12 +176,23 @@ export class Villager {
   deathTime = 0;
   /** Đang cầm đèn ông sao (rước đèn Trung thu) hay bó đuốc (đi bắt ếch đêm). */
   light: 'star' | 'torch' | null = null;
+  /** Đang thả diều — scene vẽ con diều bay theo. */
+  toy: 'kite' | null = null;
+  /** Đang ngồi trên lưng trâu đi chăn. */
+  mount: Buffalo | null = null;
+  /** Đang ngủ trưa dưới bóng cây. */
+  dozing = false;
 
   private lastPray = -DAY_LENGTH;
   /** Giờ đi ngủ của cú đêm (22:30–24:00); người thường ngủ lúc 21 giờ. */
-  private readonly owlBedtime = 22.5 + Math.random() * 1.5;
+  private owlBedtime = 22.5 + Math.random() * 1.5;
   /** Đang nằm võng. */
   private lounging = false;
+  /** Trẻ con đang nhảy dây / ngồi chơi ô ăn quan. */
+  private jumping = false;
+  private playing = false;
+  /** Tháng gần nhất đã tính chuyện ngủ trưa (mỗi tháng tính một lần). */
+  private napChecked = 0;
   private stageKey: Stage | '' = '';
 
   private prefs = {} as Record<JobId, number>;
@@ -344,6 +363,76 @@ export class Villager {
     this.body.setTexture(key).setScale(scale);
     this.shadow.setScale(scale * 0.8);
     this.icon.setY(-50 * scale);
+  }
+
+  // ------------------------------------------------------------ lưu ván chơi
+
+  toSave(buildings: Building[]): SavedVillager {
+    const home = this.home ? buildings.indexOf(this.home) : -1;
+    return {
+      def: this.def,
+      x: this.x,
+      y: this.y,
+      hunger: this.hunger,
+      energy: this.energy,
+      mood: this.mood,
+      activity: this.activity,
+      skills: this.skills,
+      carry: this.carry,
+      memories: this.memories,
+      journal: this.journal,
+      thought: this.thought,
+      intent: this.intent,
+      dreamReadyAt: this.dreamReadyAt,
+      wish: this.wish,
+      spouse: this.spouse?.def.id ?? null,
+      parents: this.parents.map((p) => p.def.id),
+      children: this.children.map((c) => c.def.id),
+      home: home >= 0 ? home : null,
+      needsHome: this.needsHome,
+      bonds: [...this.bonds].map(([o, n]) => [o.def.id, n]),
+      alive: this.alive,
+      deathTime: this.deathTime,
+      lastPray: this.lastPray,
+      prefs: this.prefs,
+      owlBedtime: this.owlBedtime,
+    };
+  }
+
+  /** Khôi phục chỉ số của riêng người này (người thân, nhà cửa nối sau bằng `link`). */
+  restore(s: SavedVillager) {
+    this.x = s.x;
+    this.y = s.y;
+    this.hunger = s.hunger;
+    this.energy = s.energy;
+    this.mood = s.mood;
+    this.activity = s.activity;
+    // Nghề mới có sau này (đan lát…) thì bản lưu cũ chưa có — giữ mức 0 mặc định.
+    this.skills = { ...this.skills, ...s.skills };
+    this.carry = s.carry;
+    this.memories = s.memories;
+    this.journal = s.journal;
+    this.thought = s.thought;
+    this.intent = s.intent;
+    this.dreamReadyAt = s.dreamReadyAt;
+    this.wish = s.wish;
+    this.needsHome = s.needsHome;
+    this.lastPray = s.lastPray;
+    this.prefs = s.prefs;
+    this.owlBedtime = s.owlBedtime;
+  }
+
+  /** Nối vợ chồng, cha mẹ, con cái, nhà ở và tình thân khi cả làng đã được dựng lại. */
+  link(s: SavedVillager, byId: Map<string, Villager>, buildings: Building[]) {
+    const get = (id: string) => byId.get(id);
+    this.spouse = (s.spouse && get(s.spouse)) || null;
+    this.parents = s.parents.map(get).filter((p): p is Villager => !!p);
+    this.children = s.children.map(get).filter((c): c is Villager => !!c);
+    this.home = s.home !== null ? (buildings[s.home] ?? null) : null;
+    for (const [id, n] of s.bonds) {
+      const o = get(id);
+      if (o) this.bonds.set(o, n);
+    }
   }
 
   /** Mất đi: dừng mọi việc đang làm (nhả chỗ đã giữ) và xoá khỏi bản đồ. */
@@ -629,23 +718,52 @@ export class Villager {
       this.phase += dt * 1.6;
       body.y = -10 + Math.sin(this.phase) * 1.2;
       body.angle = -84;
+    } else if (this.mount) {
+      // Ngồi vắt vẻo trên lưng trâu, lắc lư theo nhịp trâu đi.
+      this.phase += dt * 4;
+      body.y = -15 + Math.sin(this.phase) * 0.8;
+      body.angle = 0;
+      body.setFlipX(this.mount.facingLeft);
     } else if (this.moving) {
       this.phase += dt * 13;
       body.y = 2 - Math.abs(Math.sin(this.phase)) * 3;
       body.angle = 0;
+    } else if (this.jumping) {
+      // Dây quay một vòng: chạm đất thì bật lên cho dây luồn qua chân.
+      this.phase += dt * 7;
+      body.y = 2 - Math.max(0, Math.cos(this.phase)) * 7;
+      body.angle = 0;
+    } else if (this.playing) {
+      // Ngồi bốc quân, rải quân: người hơi lắc lư.
+      this.phase += dt * 3;
+      body.y = 4;
+      body.angle = Math.sin(this.phase) * 5;
     } else if (this.working && !this.fishSpot) {
       this.phase += dt * 11;
       body.y = 2;
       body.angle = Math.sin(this.phase) * 9;
     } else {
       body.y = 2;
-      body.angle = this.asleep ? (body.flipX ? 80 : -80) : 0;
+      body.angle = this.asleep || this.dozing ? (body.flipX ? 80 : -80) : 0;
     }
     const ico = this.carry ? RESOURCES[this.carry.res].icon : (this.holding ?? '');
     if (this.icon.text !== ico) this.icon.setText(ico);
 
     const g = this.gfx;
     g.clear();
+    if (this.jumping) {
+      // Sợi dây từ hai tay vòng qua đầu rồi xuống dưới chân.
+      const ropeY = -18 - Math.cos(this.phase) * 26 + body.y;
+      const hy = -18 + body.y;
+      g.lineStyle(1.3, 0x8a5a2a, 1).beginPath();
+      g.moveTo(-8, hy);
+      for (let i = 1; i <= 8; i++) {
+        const t = i / 8;
+        const x = -8 + 16 * t;
+        g.lineTo(x, hy + (ropeY - hy) * Math.sin(t * Math.PI));
+      }
+      g.strokePath();
+    }
     if (this.progress !== null) {
       const top = this.isChild ? -44 : -54;
       g.fillStyle(0x2b1d10, 0.55).fillRoundedRect(-13, top - 1, 26, 6, 3);
@@ -890,6 +1008,16 @@ export class Villager {
       this.thinkOnce('eat', this.hunger < 15 ? 'Đói lả rồi, về ăn ngay thôi!' : 'Bụng đói rồi, về ăn chút gì');
       return yield* this.eat();
     }
+    if (this.wantsNap()) {
+      this.thinkOnce('trua', 'Trưa nắng quá, ngả lưng một lát đã');
+      return yield* this.nap();
+    }
+    // Bạn đang ngồi chờ chơi ô ăn quan gần đây thì chạy sang chơi cùng.
+    const board = this.stage === 'tre' && this.age >= 5 ? this.scene.openBoard(this) : null;
+    if (board && Math.random() < 0.7) {
+      this.thinkOnce('oaq', `${board.players[0].name} rủ chơi ô ăn quan kìa!`);
+      return yield* this.oAnQuan(board);
+    }
     // Cả làng đã ngủ mà cú đêm còn thức: nằm võng hóng mát, hoặc soi đuốc đi bắt ếch.
     if (this.nightOwl && st.isSleepTime()) {
       const frog = this.stage !== 'gia' && Math.random() < 0.5;
@@ -920,6 +1048,8 @@ export class Villager {
         return yield* this.cook();
       case 'nung':
         return yield* this.pottery();
+      case 'dan':
+        return yield* this.weave();
       case 'xay':
         return yield* this.build();
       case 'le':
@@ -1011,6 +1141,11 @@ export class Villager {
     // Ngày hội / phiên chợ / lễ Tết: tụ tập đông, trò chuyện rôm rả hơn.
     const crowd = dinh ?? cho;
     const festive = !!dinh || !!gather;
+    // Ngày thường, trời khô ráo: trẻ con rủ nhau chơi trò dân gian.
+    const day = h >= 7 && h < 17.5;
+    if (!gather && !crowd && day && this.stage === 'tre' && this.age >= 5 && !s.state.raining && Math.random() < 0.6) {
+      return yield* this.play();
+    }
     if (gather) {
       this.status = moon ? 'Ra trông trăng phá cỗ' : 'Ra quây quần đón Tết';
       const tx = gather.x + Phaser.Math.Between(-3, 3);
@@ -1100,6 +1235,221 @@ export class Villager {
       }
     } finally {
       this.light = null;
+    }
+  }
+
+  /** Giữa trưa (11:30–13:30) người lớn có khi ngả lưng — mỗi tháng tính một lần, người lười hay ngủ trưa hơn. */
+  private wantsNap() {
+    const s = this.scene;
+    const st = s.state;
+    const h = st.hour;
+    if (this.isChild || h < 11.5 || h >= 13.5 || st.raining || s.festivalOn() || s.marketOn()) return false;
+    if (this.napChecked === st.month) return false;
+    this.napChecked = st.month;
+    let p = 0.35 + (this.isElder ? 0.25 : 0);
+    if (this.has('luoi')) p += 0.4;
+    if (this.has('sieng')) p -= 0.3;
+    return Math.random() < p;
+  }
+
+  /** Ngủ trưa dưới bóng tre / gốc cây gần đó (không có thì ngay trước nhà) tới quá trưa. */
+  private *nap(): Beh {
+    const s = this.scene;
+    this.activity = 'nghi';
+    const shade = s.findNode(['bamboo', 'tree'], this.x, this.y);
+    const near = shade && Phaser.Math.Distance.Between(shade.x, shade.y, this.x, this.y) < TILE * 12 ? shade : null;
+    // Nằm ngay phía trước bụi tre / gốc cây cho khỏi bị tán lá che mất.
+    const spot = !near ? null : s.isFree(near.tx, near.ty + 1) ? { x: near.tx, y: near.ty + 1 } : s.standNear(near.tx, near.ty, this.x, this.y);
+    const where = !near || !spot ? 'trước hiên nhà' : near.kind === 'bamboo' ? 'dưới bóng tre' : 'dưới gốc cây';
+    this.status = `Tìm chỗ mát ${where}`;
+    if (spot) yield* this.walkTo(spot.x, spot.y, 0.7);
+    else {
+      const h = this.homeSpot();
+      yield* this.walkTo(h.x, h.y, 0.7);
+    }
+    this.dozing = true;
+    this.status = `Ngủ trưa ${where} 💤`;
+    try {
+      let t = 0;
+      let z = 1;
+      while (t < 30 && s.state.hour < 13.5) {
+        const dt: number = yield;
+        t += dt;
+        this.idleTime = 0;
+        this.energy = Math.min(100, this.energy + dt * SLEEP_RATE * 0.5);
+        if ((z -= dt) <= 0) {
+          z = 2.5;
+          s.floatText(this.x + 8, this.y - 26, 'z', '#dfe8ff');
+        }
+        if (this.hunger < 15 && s.hasFood()) break;
+      }
+    } finally {
+      this.dozing = false;
+    }
+    this.addMood(4);
+  }
+
+  /** Trẻ con chơi trò dân gian: thả diều, nhảy dây, ô ăn quan (có bạn đang chờ thì sang chơi cùng). */
+  private *play(): Beh {
+    const open = this.scene.openBoard(this);
+    if (open && Math.random() < 0.85) return yield* this.oAnQuan(open);
+    const buf = this.age >= 7 ? this.scene.freeBuffalo(this.x, this.y, 18) : null;
+    if (buf && Math.random() < 0.45) return yield* this.herd(buf);
+    const r = Math.random();
+    if (r < 0.4) return yield* this.flyKite();
+    if (r < 0.7) return yield* this.jumpRope();
+    return yield* this.oAnQuan(null);
+  }
+
+  /** Chăn trâu: ra chuồng dắt trâu, trèo lên lưng cưỡi ra bãi cỏ ven sông; có khi vừa ngồi lưng trâu vừa thả diều. */
+  private *herd(buf: Buffalo): Beh {
+    const s = this.scene;
+    buf.claim(this, 'herd');
+    try {
+      this.status = 'Ra chuồng dắt trâu đi chăn 🐃';
+      if (!(yield* this.walkTo(buf.tileX, buf.tileY, 0.9))) return;
+      buf.pasture = s.pastureNear(buf);
+      this.mount = buf;
+      this.status = 'Cưỡi trâu ra bãi cỏ ven sông 🐃';
+      this.say(HERD_LINES[Math.floor(Math.random() * HERD_LINES.length)], 3500);
+      let t = 0;
+      let kite = false;
+      const dur = 25 + Math.random() * 15;
+      while (t < dur) {
+        const dt: number = yield;
+        t += dt;
+        // Ngồi trên lưng trâu: đi theo trâu.
+        this.x = buf.x + (buf.facingLeft ? 3 : -3);
+        this.y = buf.y + 1;
+        this.relaxing = true;
+        this.idleTime = 0;
+        const arrived = Phaser.Math.Distance.Between(buf.x, buf.y, buf.pasture.x, buf.pasture.y) < 40;
+        if (arrived && !kite) {
+          kite = true;
+          if (Math.random() < 0.5 && !s.state.raining) {
+            this.toy = 'kite';
+            this.status = 'Ngồi lưng trâu thả diều 🪁';
+          } else this.status = 'Ngồi lưng trâu thổi sáo 🎶';
+        }
+        if (this.mustStop() || s.state.raining) break;
+      }
+      this.addMood(6);
+    } finally {
+      this.mount = null;
+      this.toy = null;
+      buf.release();
+    }
+  }
+
+  /** Một ô trống quanh nhà, cách nhà `min`–`max` ô. */
+  private openSpot(min: number, max: number) {
+    const h = this.homeSpot();
+    for (let i = 0; i < 20; i++) {
+      const tx = h.x + Phaser.Math.Between(-max, max);
+      const ty = h.y + Phaser.Math.Between(-max, max);
+      if (Math.abs(tx - h.x) + Math.abs(ty - h.y) >= min && this.scene.isFree(tx, ty)) return { x: tx, y: ty };
+    }
+    return null;
+  }
+
+  private *flyKite(): Beh {
+    const spot = this.openSpot(3, 7);
+    this.status = 'Ra bãi trống thả diều 🪁';
+    if (spot) yield* this.walkTo(spot.x, spot.y, 0.7);
+    this.toy = 'kite';
+    try {
+      // Chạy vài bước lấy gió cho diều lên, rồi đứng giật dây.
+      this.status = 'Chạy lấy gió cho diều lên 🪁';
+      for (let i = 0; i < 2; i++) {
+        const tx = this.tileX + Phaser.Math.Between(-3, 3);
+        const ty = this.tileY + Phaser.Math.Between(-2, 2);
+        if (this.scene.isFree(tx, ty)) yield* this.walkTo(tx, ty, 1.1);
+      }
+      this.status = KITE_LINES[Math.floor(Math.random() * KITE_LINES.length)];
+      let t = 0;
+      const dur = 14 + Math.random() * 10;
+      while (t < dur) {
+        const dt: number = yield;
+        t += dt;
+        this.relaxing = true;
+        if (this.mustStop() || this.scene.state.raining) break;
+      }
+      this.addMood(5);
+    } finally {
+      this.toy = null;
+    }
+  }
+
+  private *jumpRope(): Beh {
+    const spot = this.openSpot(1, 4);
+    this.status = 'Lấy dây ra sân nhảy dây';
+    if (spot) yield* this.walkTo(spot.x, spot.y, 0.7);
+    this.jumping = true;
+    this.status = 'Nhảy dây';
+    try {
+      let t = 0;
+      let count = 0;
+      let chat = 4;
+      const dur = 10 + Math.random() * 8;
+      while (t < dur) {
+        const dt: number = yield;
+        t += dt;
+        this.relaxing = true;
+        this.energy = Math.max(0, this.energy - dt * ENERGY_DRAIN);
+        if ((chat -= dt) <= 0) {
+          chat = 5 + Math.random() * 4;
+          count += 10 + Math.floor(Math.random() * 15);
+          this.say(`Nhảy được ${count} cái rồi nè!`, 2500);
+        }
+        if (this.mustStop()) break;
+      }
+      this.addMood(4);
+    } finally {
+      this.jumping = false;
+    }
+  }
+
+  /** Ô ăn quan: kẻ bàn rồi chờ bạn (hoặc sang ngồi bàn bạn đã kẻ), hai đứa ngồi hai bên bốc quân rải quân. */
+  private *oAnQuan(join: OAnQuanBoard | null): Beh {
+    const s = this.scene;
+    let board = join;
+    if (!board) {
+      const spot = this.openSpot(1, 5);
+      if (!spot || !s.isFree(spot.x - 1, spot.y) || !s.isFree(spot.x + 1, spot.y)) return yield* this.jumpRope();
+      board = s.drawBoard(spot.x, spot.y, this);
+    } else board.players.push(this);
+    const host = board.players[0] === this;
+    try {
+      const side = host ? -1 : 1;
+      this.status = host ? 'Kẻ ô ăn quan trên nền đất' : 'Sang chơi ô ăn quan với bạn';
+      if (!(yield* this.walkTo(board.tx + side, board.ty, 0.8))) return;
+      this.face(board.tx * TILE + TILE / 2);
+      this.playing = true;
+      if (host && board.players.length === 1) this.say('Ai chơi ô ăn quan không? 🪨', 3500);
+      let t = 0;
+      let chat = 3 + Math.random() * 3;
+      const dur = 22 + Math.random() * 10;
+      while (t < dur) {
+        const dt: number = yield;
+        t += dt;
+        this.relaxing = true;
+        if (!board.alive) break;
+        const mate = board.players.find((p) => p !== this);
+        this.status = mate ? 'Chơi ô ăn quan 🪨' : 'Kẻ ô ăn quan, chờ bạn tới chơi';
+        if (mate && (chat -= dt) <= 0) {
+          chat = 4 + Math.random() * 4;
+          this.say(OAQ_LINES[Math.floor(Math.random() * OAQ_LINES.length)], 3000);
+          this.addMood(2);
+          s.addBond(this, mate, 5);
+        }
+        // Chờ mãi không ai tới thì thôi.
+        if (!mate && host && t > 20) break;
+        if (this.mustStop()) break;
+      }
+    } finally {
+      this.playing = false;
+      board.players = board.players.filter((p) => p !== this);
+      if (host) s.eraseBoard(board);
     }
   }
 
@@ -1240,6 +1590,7 @@ export class Villager {
       this.scene.sfx(node.kind === 'tree' ? 'treeFall' : 'bambooFall', node.x, node.y);
       const bonus = Math.floor(this.skills.chat.level / 3);
       this.carry = node.kind === 'tree' ? { res: 'go', amount: 4 + bonus } : { res: 'tre', amount: 4 + bonus };
+      if (node.kind === 'bamboo') this.scene.notice(this, 'tre');
       this.gainXp('chat', 4);
     } finally {
       if (node.reservedBy === this) node.reservedBy = null;
@@ -1260,7 +1611,9 @@ export class Villager {
       node.harvest();
       this.scene.recordWork(node.x, node.y);
       this.scene.sfx('pick', node.x, node.y);
-      this.carry = { res: 'chuoi', amount: 3 + Math.floor(this.skills.hai.level / 3) };
+      // Làng có rổ rá đan sẵn thì đựng được nhiều hơn.
+      const basket = this.scene.state.res.doDan > 0 ? 1 : 0;
+      this.carry = { res: 'chuoi', amount: 3 + Math.floor(this.skills.hai.level / 3) + basket };
       this.gainXp('hai', 3);
       this.scene.notice(this, 'hai');
     } finally {
@@ -1343,6 +1696,7 @@ export class Villager {
             this.scene.floatText(this.x, this.y - 50, `Bắt được ${a.name}!`, '#ffe27a');
             this.scene.state.log(`🏹 ${this.name} săn được một con ${a.name}`, { x: this.x, y: this.y });
             this.gainXp('san', a.kind === 'heo' ? 8 : 5);
+            this.scene.notice(this, 'san');
             if (a.kind === 'heo') {
               this.addMood(10);
               this.say('Săn được heo rừng! Tối nay cả nhà có thịt 😄');
@@ -1434,14 +1788,21 @@ export class Villager {
       this.status = reap ? 'Ra đồng gặt lúa' : 'Ra đồng cấy lúa';
       if (!(yield* this.walkTo(f.entrance.x, f.entrance.y))) return;
       this.face(f.px);
+      // Có trâu rảnh thì cày ruộng trước khi cấy: lúa lên nhanh, gặt nhiều thóc hơn.
+      if (!reap && !f.plowed) {
+        const buf = s.freeBuffalo(f.px, f.py);
+        if (buf && !(yield* this.plowWith(f, buf)) && this.mustStop()) return;
+      }
       this.status = reap ? 'Đang gặt lúa 🌾' : 'Đang cấy mạ 🌱';
       this.holding = reap ? '🌾' : '🌱';
       if (!(yield* this.workFor((reap ? 6 : 5) / this.eff('cay'), 'rustle', 0.6))) return;
       s.recordWork(f.px, f.py);
       if (reap) {
+        const plowed = f.plowed;
         f.harvest();
         s.state.stats.harvested++;
-        this.carry = { res: 'thoc', amount: 5 + Math.floor(this.skills.cay.level / 2) };
+        this.carry = { res: 'thoc', amount: 5 + Math.floor(this.skills.cay.level / 2) + (plowed ? 3 : 0) };
+        if (plowed && Math.random() < 0.3) this.say('Ruộng trâu cày có khác, bông lúa chắc nịch 🐃');
         const straw = 3 + Math.floor(this.skills.cay.level / 3);
         s.state.add('rom', straw);
         s.state.stats.straw += straw;
@@ -1460,6 +1821,65 @@ export class Villager {
     } finally {
       this.holding = null;
       if (f.reservedBy === this) f.reservedBy = null;
+    }
+  }
+
+  /** Dắt trâu ra kéo cày thửa ruộng trống; người cầm cày đi sau. Trả về true nếu cày xong. */
+  private *plowWith(f: Building, buf: Buffalo): Step {
+    buf.claim(this, 'plow');
+    buf.field = f;
+    try {
+      this.status = 'Dắt trâu ra ruộng cày 🐃';
+      let wait = 0;
+      while (!buf.plowing && wait < 25) {
+        wait += yield;
+        if (this.mustStop()) return false;
+      }
+      if (!buf.plowing) return false;
+      this.status = 'Theo trâu cày ruộng 🐃';
+      if (!(yield* this.workFor(7 / this.eff('cay'), 'rustle', 0.9))) return false;
+      f.plow();
+      this.gainXp('cay', 2);
+      if (!this.scene.state.stats.plowed++) {
+        this.announce('Trâu kéo cày khoẻ ghê, đất tơi xốp cả rồi! 🐃', 5000);
+        this.scene.state.log(`🐃 ${this.name} dắt trâu cày thửa ruộng đầu tiên`, { x: f.px, y: f.py });
+      }
+      return true;
+    } finally {
+      buf.release();
+    }
+  }
+
+  /** Ngồi trước hiên nhà chẻ tre, vót nan, đan rổ rá, chằm nón lá. */
+  private *weave(): Beh {
+    const s = this.scene;
+    const st = s.state;
+    if (st.res.tre < 2) return yield* this.idle('Hết tre để đan rồi');
+    const h = this.homeSpot();
+    const tx = h.x + Phaser.Math.Between(-1, 1);
+    const ty = h.y + Phaser.Math.Between(0, 1);
+    this.status = 'Về hiên nhà ngồi đan lát';
+    if (s.isFree(tx, ty)) yield* this.walkTo(tx, ty, 0.8);
+    try {
+      this.status = 'Chẻ tre, vót nan 🎋';
+      this.holding = '🎋';
+      if (!(yield* this.workFor(4 / this.eff('dan'), 'rustle', 1.1))) return;
+      if (st.res.tre < 2) return;
+      st.res.tre -= 2;
+      const hat = Math.random() < 0.4;
+      this.status = hat ? 'Chằm nón lá 👒' : 'Đan rổ rá, thúng mủng 🧺';
+      this.holding = hat ? '👒' : '🧺';
+      if (!(yield* this.workFor(5 / this.eff('dan'), 'rustle', 1.3))) return;
+      const n = 1 + (Math.random() < this.skills.dan.level * 0.08 ? 1 : 0);
+      this.gainXp('dan', 4);
+      this.carry = { res: 'doDan', amount: n };
+      if (!st.stats.woven) {
+        this.announce(hat ? 'Chiếc nón lá đầu tiên, trắng tinh đẹp quá! 👒' : 'Cái rổ đầu tiên, nan đều tăm tắp! 🧺', 5000);
+        st.log(`🧺 ${this.name} đan xong ${hat ? 'chiếc nón lá' : 'cái rổ'} đầu tiên của làng`, { x: this.x, y: this.y });
+      }
+      st.stats.woven += n;
+    } finally {
+      this.holding = null;
     }
   }
 

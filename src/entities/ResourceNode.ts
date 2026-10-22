@@ -76,6 +76,20 @@ export class ResourceNode {
     if (this.timer <= 0) this.regrow();
   }
 
+  /** Thời gian còn lại tới lúc mọc lại (0 khi đã mọc). */
+  get regrowIn() {
+    return this.timer;
+  }
+
+  /** Khôi phục từ bản lưu: đã khai thác, còn `timer` giây nữa mới mọc lại. */
+  restoreCut(timer: number) {
+    this.grown = false;
+    this.timer = timer;
+    if (this.kind === 'banana' || this.kind === 'clay') this.setTex(`${this.kind}_empty`);
+    else if (this.kind === 'bamboo') this.setTex('bamboo_cut');
+    else this.setTex(timer <= REGROW.tree / 2 ? 'sapling' : 'stump');
+  }
+
   /** Thành Hoàng ban lộc: mọc lại ngay. Trả về true nếu có tác dụng. */
   bless() {
     if (this.grown) return false;

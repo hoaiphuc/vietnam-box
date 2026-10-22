@@ -20,9 +20,12 @@ import {
 } from '../data';
 import { Animal, type AnimalKind } from '../entities/Animal';
 import { Building, type BuildState } from '../entities/Building';
+import { Buffalo } from '../entities/Buffalo';
+import { Dog, DOG_NAMES } from '../entities/Dog';
 import { ResourceNode } from '../entities/ResourceNode';
 import { Villager, type VillagerDef } from '../entities/Villager';
 import { DREAM_COST, POWERS, WISHES, type PowerId, type WishType } from '../powers';
+import { readSave, writeSave, type SaveData, type SavedVillager } from '../save';
 import { GameState } from '../state';
 import type { StoryShot } from '../story';
 import { rollTraits, type TraitId } from '../traits';
@@ -31,8 +34,17 @@ import { Hud } from '../ui/Hud';
 import { generateMap, type NodeKind } from '../world/mapgen';
 import { findPath, type Pt } from '../world/pathfinding';
 import { createTextures, drawGround, personTexture } from '../world/textures';
-import { DISCOVERIES, ERAS, type DiscId } from '../discoveries';
+import { DISCOVERIES, eraIndex, ERAS, type DiscId } from '../discoveries';
 import { World } from '../world/World';
+
+/** Bàn ô ăn quan trẻ con kẻ trên nền đất; người đầu tiên là đứa kẻ bàn. */
+export interface OAnQuanBoard {
+  tx: number;
+  ty: number;
+  players: Villager[];
+  alive: boolean;
+  img: Phaser.GameObjects.Image;
+}
 
 export interface FishingSpot {
   x: number;
@@ -117,7 +129,10 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     createTextures(this);
-    const data = generateMap(Math.floor(Math.random() * 1e9));
+    // Có ván đã lưu thì dựng lại đúng bản đồ cũ từ seed, rồi khôi phục làng.
+    const save = readSave();
+    this.seed = save?.seed ?? Math.floor(Math.random() * 1e9);
+    const data = generateMap(this.seed);
     this.world = new World(data);
     drawGround(this, this.world);
     this.add.image(0, 0, 'ground').setOrigin(0, 0).setDepth(-1000);
@@ -134,6 +149,44 @@ export class GameScene extends Phaser.Scene {
 
     const v = data.village;
     this.homeTile = { x: v.x, y: v.y + 1 };
+    if (save) this.restore(save);
+    else this.foundVillage(v);
+    this.syncDogs();
+    this.syncBuffaloes();
+    for (let i = 0; i < 7; i++) this.spawnAnimal(i < 4 ? 'ga' : 'heo');
+
+    this.darkness = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x0c1a48).setOrigin(0).setAlpha(0).setDepth(50000);
+    this.warmth = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0xff8a3d).setOrigin(0).setAlpha(0).setDepth(50000);
+    this.createFireflies();
+    this.ghostGfx = this.add.graphics().setDepth(49000);
+    this.rainShade = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x2a3a52).setOrigin(0).setAlpha(0).setDepth(50004);
+    this.rainGfx = this.add.graphics().setDepth(50005);
+    for (let i = 0; i < 220; i++) {
+      this.drops.push({ u: Math.random(), v: Math.random(), len: 10 + Math.random() * 10, speed: 0.9 + Math.random() * 0.6 });
+    }
+
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
+    cam.setZoom(1.4);
+    cam.centerOn(v.x * TILE, v.y * TILE);
+    this.setupInput();
+
+    this.hud = new Hud(this, save);
+    if (!save) this.state.log('🌾 Gia đình Bố Tám, Mẹ Lan và Bé Na về lập nghiệp bên bờ sông', { x: v.x * TILE, y: v.y * TILE });
+    // Đóng tab, tắt cửa sổ hay chuyển sang việc khác thì lưu lại.
+    const saveOnLeave = () => document.visibilityState === 'hidden' && this.saveGame();
+    document.addEventListener('visibilitychange', saveOnLeave);
+    window.addEventListener('pagehide', this.saveGame);
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+      document.removeEventListener('visibilitychange', saveOnLeave);
+      window.removeEventListener('pagehide', this.saveGame);
+      this.music?.stop();
+      this.audio?.dispose();
+    });
+  }
+
+  /** Ván mới: gia đình Bố Tám, Mẹ Lan, Bé Na dựng căn lều đầu tiên bên sông. */
+  private foundVillage(v: Pt) {
     const house = this.placeBuilding('nha', v.x - 1, v.y - 2, 'built');
     const [bo, me, na] = FOUNDERS.map((f, i) =>
       this.addVillager(
@@ -159,30 +212,89 @@ export class GameScene extends Phaser.Scene {
     this.addBond(bo, me, 85);
     this.addBond(bo, na, 75);
     this.addBond(me, na, 75);
-    for (let i = 0; i < 7; i++) this.spawnAnimal(i < 4 ? 'ga' : 'heo');
+  }
 
-    this.darkness = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x0c1a48).setOrigin(0).setAlpha(0).setDepth(50000);
-    this.warmth = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0xff8a3d).setOrigin(0).setAlpha(0).setDepth(50000);
-    this.createFireflies();
-    this.ghostGfx = this.add.graphics().setDepth(49000);
-    this.rainShade = this.add.rectangle(0, 0, MAP_W * TILE, MAP_H * TILE, 0x2a3a52).setOrigin(0).setAlpha(0).setDepth(50004);
-    this.rainGfx = this.add.graphics().setDepth(50005);
-    for (let i = 0; i < 220; i++) {
-      this.drops.push({ u: Math.random(), v: Math.random(), len: 10 + Math.random() * 10, speed: 0.9 + Math.random() * 0.6 });
-    }
+  // ------------------------------------------------------------ lưu ván chơi
 
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
-    cam.setZoom(1.4);
-    cam.centerOn(v.x * TILE, v.y * TILE);
-    this.setupInput();
+  private seed = 0;
+  /** Mộ phần (ô), để dựng lại nghĩa trang khi tải ván. */
+  private graves: Pt[] = [];
 
-    this.hud = new Hud(this);
-    this.state.log('🌾 Gia đình Bố Tám, Mẹ Lan và Bé Na về lập nghiệp bên bờ sông', { x: v.x * TILE, y: v.y * TILE });
-    this.events.once(Phaser.Scenes.Events.DESTROY, () => {
-      this.music?.stop();
-      this.audio?.dispose();
+  /** Lưu cả làng vào trình duyệt. Chưa bấm "Bắt đầu" thì chưa có gì để lưu. */
+  saveGame = () => {
+    if (this.cutscene) return false;
+    const b = this.buildings;
+    return writeSave({
+      seed: this.seed,
+      state: this.state.toSave(),
+      world: {
+        idCounter: this.idCounter,
+        migrantAt: this.migrantAt,
+        lastMigrant: this.lastMigrant,
+        graves: this.graves,
+        rainAt: this.rainAt,
+        droughtSince: this.droughtSince,
+        firstRipe: this.firstRipe,
+        banhChung: this.banhChung,
+        chief: this.chiefV?.def.id ?? null,
+        workSpots: this.workSpots,
+      },
+      buildings: b.map((x) => x.toSave()),
+      nodes: this.nodes.filter((n) => !n.grown).map((n) => ({ x: n.tx, y: n.ty, timer: n.regrowIn })),
+      villagers: this.villagers.map((v) => v.toSave(b)),
+      departed: this.departed.map((v) => v.toSave(b)),
     });
+  };
+
+  /** Dựng lại làng từ bản lưu (bản đồ đã sinh lại từ seed). */
+  private restore(s: SaveData) {
+    const st = this.state;
+    // Giờ giấc phải có trước khi dựng người: tuổi, dáng người tính theo thời gian.
+    st.load(s.state);
+    this.lastMonth = st.monthAt(st.time);
+    const w = s.world;
+    this.idCounter = w.idCounter;
+    this.migrantAt = w.migrantAt;
+    this.lastMigrant = w.lastMigrant;
+    this.rainAt = w.rainAt;
+    this.droughtSince = w.droughtSince;
+    this.firstRipe = w.firstRipe;
+    this.banhChung = w.banhChung;
+    this.workSpots = w.workSpots;
+    this.wasRaining = st.raining;
+
+    for (const sb of s.buildings) {
+      const state: BuildState = sb.built ? 'built' : sb.planned ? 'planned' : 'site';
+      this.placeBuilding(sb.id, sb.tx, sb.ty, state, sb.tier).restore(sb);
+    }
+    for (const sn of s.nodes) this.nodeGrid.get(sn.y * MAP_W + sn.x)?.restoreCut(sn.timer);
+    for (const g of s.world.graves) this.addGrave(g);
+
+    const byId = new Map<string, Villager>();
+    const make = (sv: SavedVillager) => {
+      const v = new Villager(this, sv.def, 0, 0);
+      v.restore(sv);
+      byId.set(sv.def.id, v);
+      return v;
+    };
+    this.villagers = s.villagers.map(make);
+    this.departed = s.departed.map(make);
+    for (const [i, sv] of [...s.villagers, ...s.departed].entries()) {
+      const v = byId.get(sv.def.id)!;
+      v.link(sv, byId, this.buildings);
+      if (i >= s.villagers.length) {
+        v.die();
+        v.deathTime = sv.deathTime;
+      }
+    }
+    this.chiefV = (w.chief && byId.get(w.chief)?.alive && byId.get(w.chief)) || null;
+
+    // Đang giữa phiên chợ / ngày hội thì coi như đã mở, khỏi tính lại từ đầu.
+    this.marketWas = this.marketOn();
+    this.festivalWas = this.festivalOn();
+    this.midAutumnWas = this.midAutumnOn();
+    this.tetWas = this.tetOn();
+    if (this.midAutumnWas || this.tetWas) this.gatherSpot = this.findGatherSpot();
   }
 
   // ------------------------------------------------------------ âm thanh
@@ -513,7 +625,14 @@ export class GameScene extends Phaser.Scene {
     this.state.log(`${b.icon} Đã xây xong ${b.name}!`, { x: b.px, y: b.py });
     this.sfx('built');
     this.floatText(b.px, b.py - b.sprite.height, `${b.name} hoàn thành!`, '#ffe27a');
-    if (b.def.home) this.assignHome(b);
+    if (b.def.home) {
+      this.assignHome(b);
+      this.syncDogs();
+    }
+    if (b.id === 'chuong') {
+      this.syncBuffaloes();
+      if (this.state.stats.built.chuong === 1) this.state.log('🐃 Chú nghé được dắt về chuồng mới — lớn lên sẽ kéo cày cho cả làng', { x: b.px, y: b.py });
+    }
   }
 
   /** "nhà Bố Tám" — gọi nhà theo người lớn đang ở. */
@@ -909,6 +1028,11 @@ export class GameScene extends Phaser.Scene {
         !st.has('gom') || !kiln || r.go < 3
           ? -1
           : 0.2 + (r.gom < 6 ? 0.3 : 0) + (market ? 0.15 : 0) + (this.demandWithUpgrade('gach') > r.gach ? 0.35 : 0),
+      // Đồ đan: chưa có chợ thì đan đủ dùng trong nhà; có chợ thì để dành thêm mang đi bán.
+      dan:
+        !st.has('dan') || r.tre < 2 || r.doDan >= (market ? 15 : 6)
+          ? -1
+          : 0.15 + (r.doDan < 4 ? 0.25 : 0) + (market ? 0.15 : 0) - (r.tre < 8 ? 0.1 : 0),
       xay: this.buildings.some((b) => b.isSite) ? 0.9 : -1,
       le: 0,
     };
@@ -1018,6 +1142,11 @@ export class GameScene extends Phaser.Scene {
       this.discover('cho', chief, `Trưởng làng ${chief.name} bàn với cả làng: đồ gốm làm ra nhiều rồi, mở chợ phiên cho làng bên đến đổi chác`);
     } else if (st.has('cho') && !st.has('dinh') && pop >= 8 && built('cho')) {
       this.discover('dinh', chief, `Làng giờ đã đông đúc, trưởng làng ${chief.name} bàn dựng ngôi đình làm nơi hội họp, mở hội mỗi mùa`);
+    } else if (!st.has('dan') && st.month >= 10 && st.res.tre >= 10) {
+      // Mãi chưa ai tự nghĩ ra thì trưởng làng bày cho.
+      this.discover('dan', chief, `Tre thừa nhiều, ${chief.name} ngồi chẻ nan đan thử cái rổ — cả làng xúm lại học theo`);
+    } else if (st.has('ruong') && !st.has('trau') && st.month >= 18 && count('ruong') >= 2) {
+      this.discover('trau', chief, `Làng bên dắt sang con nghé đổi lấy thóc — ${chief.name} bàn dựng chuồng nuôi trâu kéo cày`);
     }
 
     const homeless = this.villagers.filter((v) => v.needsHome && !v.isChild);
@@ -1052,6 +1181,9 @@ export class GameScene extends Phaser.Scene {
     } else if (st.has('dinh') && !count('dinh') && can('dinh')) {
       id = 'dinh';
       why = 'Dựng ngôi đình cho làng hội họp, thờ phụng';
+    } else if (st.has('trau') && fields && count('chuong') < Math.min(3, Math.ceil(fields / 3)) && can('chuong')) {
+      id = 'chuong';
+      why = count('chuong') ? 'Ruộng nhiều rồi, nuôi thêm con trâu cày' : 'Dựng chuồng nuôi trâu — con trâu là đầu cơ nghiệp';
     } else if (st.has('ruong') && fields < Math.ceil(pop / 2) && st.res.tre >= 10) {
       id = 'ruong';
       why = 'Đắp thêm ruộng, cho cả làng đủ gạo ăn';
@@ -1238,6 +1370,9 @@ export class GameScene extends Phaser.Scene {
       const finder = this.villagers.filter((v) => !v.isChild).sort((a, b) => b.skills.hai.level - a.skills.hai.level)[0];
       if (finder) this.discover('ruong', finder, `Một sáng ra bãi bồi, ${finder.name} thấy lúa dại trổ bông, bèn mang hạt về gieo thử`);
     }
+    this.syncDogs();
+    // Tự lưu mỗi khi sang tháng mới.
+    this.saveGame();
   }
 
   private birth(mom: Villager, dad: Villager) {
@@ -1304,7 +1439,12 @@ export class GameScene extends Phaser.Scene {
   private placeGrave(): Pt {
     const spot = this.cemetery ? this.findBuildSpot('lua', this.cemetery, 0) : this.findBuildSpot('lua', this.homeTile, 8);
     if (!spot) return { x: this.homeTile.x * TILE, y: this.homeTile.y * TILE };
+    return this.addGrave(spot);
+  }
+
+  private addGrave(spot: Pt) {
     this.cemetery ??= spot;
+    this.graves.push(spot);
     this.occupied.add(spot.y * MAP_W + spot.x);
     const x = spot.x * TILE + TILE / 2;
     const y = spot.y * TILE + TILE - 2;
@@ -1398,12 +1538,23 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------ phát kiến, mùa màng, phiên chợ, hội làng
 
   /** Dân làng vừa làm xong một việc — có khi nhờ đó mà nghĩ ra điều mới. */
-  notice(v: Villager, act: 'hai' | 'ca' | 'cay') {
+  notice(v: Villager, act: 'hai' | 'ca' | 'cay' | 'san' | 'tre') {
     const st = this.state;
-    if (!st.has('ruong') && st.month >= 2 && act !== 'cay' && Math.random() < 0.15) {
+    const knack = v.has('kheoTay') || v.has('toMo') ? 0.18 : 0.08;
+    if (act === 'tre') {
+      // Chặt tre về, ngồi nghịch mấy nan tre thừa.
+      if (!st.has('dan') && st.month >= 3 && Math.random() < knack) {
+        this.discover('dan', v, `${v.name} ngồi nghịch mấy nan tre thừa, đan thử được cái rổ con xinh xắn`);
+      }
+    } else if (act === 'san') {
+      // Đi săn gặp nghé lạc mẹ trong rừng, dắt về nuôi.
+      const fields = this.buildings.some((b) => b.isField && b.built);
+      if (st.has('ruong') && !st.has('trau') && fields && this.villagers.length >= 5 && Math.random() < 0.25) {
+        this.discover('trau', v, `${v.name} đi săn gặp chú nghé lạc mẹ trong rừng, dắt về nuôi — lớn lên kéo cày được`);
+      }
+    } else if (!st.has('ruong') && st.month >= 2 && act !== 'cay' && Math.random() < 0.15) {
       this.discover('ruong', v, `${v.name} để ý thấy lúa dại trổ bông ở bãi bồi ven sông, bèn mang hạt về gieo thử`);
     } else if (st.has('ruong') && !st.has('gom') && this.villagers.length >= 4 && act !== 'hai') {
-      const knack = v.has('kheoTay') || v.has('toMo') ? 0.18 : 0.08;
       if (Math.random() < knack) {
         const where = act === 'cay' ? 'ngoài ruộng' : 'bên bờ sông';
         this.discover('gom', v, `${v.name} nặn chơi nắm đất sét ${where}, để quên cạnh bếp lửa — sáng ra cứng như đá`);
@@ -1413,6 +1564,8 @@ export class GameScene extends Phaser.Scene {
 
   private static readonly DISC_LINES: Record<DiscId, string> = {
     ruong: 'Ơ, lúa dại! Mang về gieo thử xem 🌾',
+    dan: 'Chẻ nan đan rổ, chằm nón — tre làng mình quý thật! 🧺',
+    trau: 'Con trâu là đầu cơ nghiệp! Nuôi lớn cho nó kéo cày 🐃',
     gom: 'Đất sét nung lên cứng thế này, làm được chum vại rồi! 🏺',
     cho: 'Mở chợ phiên thôi, cho làng mình thêm sầm uất! 🏮',
     dinh: 'Làng mình phải có một ngôi đình! 🏯',
@@ -1421,6 +1574,7 @@ export class GameScene extends Phaser.Scene {
   discover(id: DiscId, v: Villager, story: string) {
     const st = this.state;
     if (st.has(id)) return;
+    const eraBefore = eraIndex(st.discovered);
     st.discovered.add(id);
     const d = DISCOVERIES[id];
     v.addMood(15);
@@ -1431,8 +1585,8 @@ export class GameScene extends Phaser.Scene {
     const at = { x: v.x, y: v.y };
     st.log(`💡 ${story}`, at);
     st.log(`${d.icon} Làng biết ${d.name.toLowerCase()}!`, at);
-    const era = ERAS[Math.min(ERAS.length - 1, st.discovered.size)];
-    st.log(`${era.icon} Làng bước sang ${era.name.toLowerCase()}`);
+    const now = eraIndex(st.discovered);
+    if (now > eraBefore) st.log(`${ERAS[now].icon} Làng bước sang ${ERAS[now].name.toLowerCase()}`);
     this.needsCache = null;
     this.hud.banner(d.icon, `Phát kiến: ${d.name}`, story);
   }
@@ -1501,10 +1655,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Lúa lớn: mưa thì nhanh gấp 3, hạn thì chậm hẳn.
+    // Lúa lớn: mưa thì nhanh gấp 3, hạn thì chậm hẳn; ruộng trâu cày lên nhanh hơn.
     const mul = st.raining ? 3 : st.drought ? 0.35 : 1;
     for (const b of this.buildings) {
-      if (b.isField && b.grow(dt, GameScene.FIELD_GROW, mul) && !this.firstRipe) {
+      if (b.isField && b.grow(dt, GameScene.FIELD_GROW, mul * (b.plowed ? 1.5 : 1)) && !this.firstRipe) {
         this.firstRipe = true;
         st.log('🌾 Thửa ruộng đầu tiên đã chín vàng, chờ ngày gặt', { x: b.px, y: b.py });
       }
@@ -1536,21 +1690,29 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Phiên chợ: người làng bên tới, làng bán đồ gốm đổi lấy gỗ, tre và gạo. */
+  /** Phiên chợ: người làng bên tới, làng bán đồ gốm, đồ đan đổi lấy gỗ, tre và gạo. */
   private openMarket() {
     const st = this.state;
     const cho = this.buildings.find((b) => b.id === 'cho' && b.built)!;
     const sold = Math.min(st.res.gom, 6);
     st.res.gom -= sold;
-    st.add('go', sold * 2);
-    st.add('tre', sold * 2);
-    st.add('com', sold * 2);
+    // Rổ rá, nón lá nhẹ giá hơn gốm: mỗi món đổi được hai bát cơm.
+    const woven = Math.min(st.res.doDan, 6);
+    st.res.doDan -= woven;
+    const go = sold * 2;
+    const tre = sold * 2;
+    const com = sold * 2 + woven * 2;
+    st.add('go', go);
+    st.add('tre', tre);
+    st.add('com', com);
     this.addPhuc(4);
     this.sfx('quest', cho.px, cho.py);
+    const goods = [sold && `${sold} đồ gốm`, woven && `${woven} đồ đan`].filter(Boolean).join(' và ');
+    const got = [go && `${go} gỗ`, tre && `${tre} tre`, com && `${com} bát cơm`].filter(Boolean).join(', ');
     st.log(
-      sold
-        ? `🏮 Phiên chợ họp: làng bán ${sold} đồ gốm, đổi được ${sold * 2} gỗ, ${sold * 2} tre và ${sold * 2} bát cơm`
-        : '🏮 Phiên chợ họp: người làng bên gánh hàng tới, làng mình chưa có gốm để bán',
+      goods
+        ? `🏮 Phiên chợ họp: làng bán ${goods}, đổi được ${got}`
+        : '🏮 Phiên chợ họp: người làng bên gánh hàng tới, làng mình chưa có hàng để bán',
       { x: cho.px, y: cho.py },
     );
     for (let i = 0; i < 3; i++) {
@@ -1693,6 +1855,118 @@ export class GameScene extends Phaser.Scene {
         ? '🌕 Trẻ con phá cỗ, chia nhau bánh trái — Trung thu khép lại trong tiếng cười, Thành Hoàng được thêm Phúc'
         : '🌕 Trăng đã lên cao, Trung thu khép lại — Thành Hoàng được thêm Phúc',
     );
+  }
+
+  // ------------------------------------------------------------ đời thường: chó giữ nhà, trò chơi trẻ con
+
+  private dogs: Dog[] = [];
+  private kites = new Map<Villager, { img: Phaser.GameObjects.Image; line: Phaser.GameObjects.Graphics; h: number; phase: number }>();
+  private boards: OAnQuanBoard[] = [];
+
+  /** Mỗi nếp nhà có người ở nuôi một con chó (tối đa 5 con), theo người lớn trong nhà. */
+  private syncDogs() {
+    for (const h of this.buildings.filter((b) => b.isHouse && b.built)) {
+      const family = this.villagers.filter((v) => v.home === h);
+      if (!family.length) continue;
+      const owner = family.find((v) => !v.isChild && !v.isElder) ?? family.find((v) => !v.isChild) ?? family[0];
+      const dog = this.dogs.find((d) => d.home === h);
+      if (dog) {
+        if (!dog.owner?.alive || dog.owner.home !== h) dog.owner = owner;
+        continue;
+      }
+      if (this.dogs.length >= 5) continue;
+      const taken = new Set(this.dogs.map((d) => d.name));
+      this.dogs.push(new Dog(this, h, owner, DOG_NAMES.find((n) => !taken.has(n)) ?? 'Vàng'));
+    }
+  }
+
+  private buffaloes: Buffalo[] = [];
+
+  /** Mỗi chuồng trâu đã dựng xong có một con trâu. */
+  private syncBuffaloes() {
+    for (const pen of this.buildings.filter((b) => b.id === 'chuong' && b.built)) {
+      if (!this.buffaloes.some((b) => b.pen === pen)) this.buffaloes.push(new Buffalo(this, pen));
+    }
+  }
+
+  /** Con trâu đang rảnh gần nhất (ban ngày), trong vòng `range` ô. */
+  freeBuffalo(x: number, y: number, range = 24) {
+    if (this.state.isSleepTime()) return null;
+    const b = this.nearest(this.buffaloes.filter((b) => b.free), x, y, (b) => b);
+    return b && Phaser.Math.Distance.Between(b.x, b.y, x, y) < range * TILE ? b : null;
+  }
+
+  /** Bãi cỏ ven sông gần chuồng để dắt trâu ra chăn (pixel). */
+  pastureNear(b: Buffalo) {
+    const shore = this.fishingSpots.filter((s) => Math.abs(s.x - b.pen.tx) + Math.abs(s.y - b.pen.ty) <= 16);
+    const t = shore.length ? pick(shore) : { x: b.pen.tx + Phaser.Math.Between(-5, 5), y: b.pen.ty + Phaser.Math.Between(3, 6) };
+    return { x: t.x * TILE + TILE / 2, y: t.y * TILE + TILE / 2 };
+  }
+
+  /** Chó của nhà người này (nếu có). */
+  dogOf(v: Villager) {
+    return this.dogs.find((d) => d.home === v.home) ?? null;
+  }
+
+  /** Diều bay trên đầu đứa trẻ đang thả, dây võng xuống theo gió. */
+  private updateKites(realDt: number) {
+    for (const [v, k] of this.kites) {
+      if (v.toy === 'kite' && v.alive) continue;
+      k.img.destroy();
+      k.line.destroy();
+      this.kites.delete(v);
+    }
+    for (const v of this.villagers) {
+      if (v.toy !== 'kite') continue;
+      let k = this.kites.get(v);
+      if (!k) {
+        k = {
+          img: this.add.image(v.x, v.y - 30, 'kite').setOrigin(0.5, 0.35).setDepth(49500),
+          line: this.add.graphics().setDepth(49499),
+          h: 0,
+          phase: Math.random() * 10,
+        };
+        this.kites.set(v, k);
+      }
+      k.h = Math.min(1, k.h + realDt * 0.35);
+      const t = this.realTime + k.phase;
+      const dir = v.facingLeft ? -1 : 1;
+      const hx = v.x + dir * 6;
+      const hy = v.y - 20;
+      const kx = v.x + dir * (24 + 46 * k.h) + Math.sin(t * 0.8) * 10;
+      const ky = v.y - 30 - 100 * k.h + Math.sin(t * 1.6) * 6;
+      k.img.setPosition(kx, ky).setAngle(Math.sin(t * 2.1) * 14).setVisible(!v.inside);
+      const g = k.line.clear().setVisible(!v.inside);
+      g.lineStyle(1, 0xf5f0e0, 0.8).beginPath();
+      g.moveTo(hx, hy);
+      for (let i = 1; i <= 12; i++) {
+        const u = i / 12;
+        g.lineTo(hx + (kx - hx) * u, hy + (ky - hy) * u + Math.sin(u * Math.PI) * 12 * (1 - k.h * 0.5));
+      }
+      g.strokePath();
+    }
+  }
+
+  /** Bàn ô ăn quan đang có một đứa ngồi chờ bạn, gần đứa trẻ này. */
+  openBoard(v: Villager) {
+    return (
+      this.boards.find(
+        (b) => b.alive && b.players.length === 1 && !b.players.includes(v) && Math.abs(b.tx - v.tileX) + Math.abs(b.ty - v.tileY) <= 14,
+      ) ?? null
+    );
+  }
+
+  drawBoard(tx: number, ty: number, host: Villager): OAnQuanBoard {
+    const img = this.add.image(tx * TILE + TILE / 2, ty * TILE + TILE / 2 + 6, 'oaq').setDepth(-350);
+    const b = { tx, ty, players: [host], alive: true, img };
+    this.boards.push(b);
+    return b;
+  }
+
+  eraseBoard(b: OAnQuanBoard) {
+    b.alive = false;
+    this.boards = this.boards.filter((x) => x !== b);
+    this.tweens.add({ targets: b.img, alpha: 0, duration: 1200, onComplete: () => b.img.destroy() });
   }
 
   /** Chiều ba mươi tháng Chạp: dựng cây nêu, cắm hoa đào, luộc bánh chưng, cả làng quây quần chờ giao thừa. */
@@ -1951,6 +2225,7 @@ export class GameScene extends Phaser.Scene {
 
     this.layoutBubbles();
     this.updateKidLamps();
+    this.updateKites(realDt);
     this.updateLighting(realDt);
     this.updateRain(realDt);
     this.updateGhost();
@@ -1987,6 +2262,8 @@ export class GameScene extends Phaser.Scene {
       }
       for (const v of this.villagers) v.update(dt);
       for (const a of this.animals) a.update(dt);
+      for (const d of this.dogs) d.update(dt);
+      for (const b of this.buffaloes) b.update(dt);
       this.animals = this.animals.filter((a) => a.alive);
       // Mưa xuống, cây cối mọc nhanh gấp 6.
       const grow = st.raining ? dt * 6 : dt;

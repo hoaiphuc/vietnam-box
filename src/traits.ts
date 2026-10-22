@@ -44,7 +44,7 @@ export const TRAITS: Record<TraitId, Trait> = {
   nhutNhat: { name: 'Nhút nhát', icon: '🙈', desc: 'Sợ thú rừng, ngại đi săn.', aff: { san: -0.4 }, conflicts: ['gan'] },
   gan: { name: 'Gan dạ', icon: '🦁', desc: 'Không ngại săn thú lớn, ít bị heo húc.', aff: { san: 0.3 }, conflicts: ['nhutNhat'] },
   meCa: { name: 'Mê câu cá', icon: '🎣', desc: 'Ngồi bờ sông cả ngày không chán.', aff: { ca: 0.4 } },
-  kheoTay: { name: 'Khéo tay', icon: '🧵', desc: 'Giỏi xây dựng và nấu nướng.', aff: { xay: 0.25, nau: 0.15 } },
+  kheoTay: { name: 'Khéo tay', icon: '🧵', desc: 'Giỏi xây dựng, nấu nướng và đan lát.', aff: { xay: 0.25, nau: 0.15, dan: 0.25 } },
   yeuThienNhien: {
     name: 'Yêu thiên nhiên',
     icon: '🌿',

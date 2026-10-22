@@ -17,9 +17,10 @@ import {
   type JobId,
   type ResKey,
 } from '../data';
-import { DISC_ORDER, DISCOVERIES, ERAS, type DiscId } from '../discoveries';
+import { DISC_ORDER, DISCOVERIES, eraIndex, ERAS, type DiscId } from '../discoveries';
 import { MAX_LEVEL, xpNeed, type Villager } from '../entities/Villager';
 import { DREAM_COST, POWER_ORDER, POWERS, WISHES, type PowerId } from '../powers';
+import { clearSave, type SaveData } from '../save';
 import type { GameScene } from '../scenes/GameScene';
 import type { HistoryEntry } from '../state';
 import { OPENING } from '../story';
@@ -98,7 +99,10 @@ export class Hud {
   private clockText: HTMLElement;
   private clockIcon: HTMLElement;
 
-  constructor(private scene: GameScene) {
+  constructor(
+    private scene: GameScene,
+    save: SaveData | null,
+  ) {
     this.root = document.getElementById('ui')!;
     this.root.innerHTML = `
       <div class="topbar panel">
@@ -143,6 +147,7 @@ export class Hud {
             <button class="snd-mute"></button>
           </div>
         </div>
+        <button class="save-btn" title="Ván chơi tự lưu mỗi tháng và khi đóng game — bấm để lưu ngay">💾</button>
       </div>
       <div class="family panel" data-fold="family">
         <div class="fhead">
@@ -240,18 +245,28 @@ export class Hud {
     this.speedBtns = [...this.root.querySelectorAll<HTMLButtonElement>('[data-speed]')];
     for (const b of this.speedBtns) b.addEventListener('click', () => scene.state.setSpeed(Number(b.dataset.speed)));
 
-    // Đoạn mở đầu trước, rồi mới tới màn hướng dẫn; game đứng yên cho tới khi bấm "Bắt đầu".
+    // Ván mới: đoạn mở đầu trước, rồi mới tới màn hướng dẫn. Có ván đã lưu: hỏi chơi tiếp hay chơi lại.
+    // Game đứng yên cho tới khi bấm nút.
     const intro = q(this.root, '.intro');
+    const start = q<HTMLButtonElement>(intro, '.start');
     scene.state.setSpeed(0);
     scene.cutscene = true;
-    intro.hidden = true;
-    q(intro, '.start').addEventListener('click', () => {
+    start.addEventListener('click', () => {
       intro.remove();
       scene.cutscene = false;
       scene.startAudio();
       scene.state.setSpeed(1);
     });
-    playStory(this.root, scene, OPENING).then(() => (intro.hidden = false));
+    if (save) {
+      this.showResume(intro, start, save);
+    } else {
+      intro.hidden = true;
+      playStory(this.root, scene, OPENING).then(() => (intro.hidden = false));
+    }
+
+    q(this.root, '.save-btn').addEventListener('click', () =>
+      scene.state.notify(scene.saveGame() ? '💾 Đã lưu ván chơi' : '⚠️ Không lưu được — trình duyệt đang chặn bộ nhớ'),
+    );
 
     this.setupSound();
 
@@ -350,6 +365,30 @@ export class Hud {
 
     scene.state.events.on('log', (msg: string) => this.toast(msg));
     this.update();
+  }
+
+  /** Màn chào khi có ván đã lưu: chơi tiếp, hoặc xoá đi chơi lại từ đầu (bấm hai lần cho chắc). */
+  private showResume(intro: HTMLElement, start: HTMLButtonElement, save: SaveData) {
+    const s = this.scene;
+    const card = q(intro, '.intro-card');
+    for (const p of card.querySelectorAll('p')) p.remove();
+    const when = new Date(save.savedAt).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+    q(card, 'h2').insertAdjacentHTML(
+      'afterend',
+      `<p class="resume">📜 Làng của bạn đang chờ: <b>${s.state.dateLabel(s.state.month)}</b> · ${s.villagers.length} người dân<br><small>Lưu lúc ${when}</small></p>`,
+    );
+    start.textContent = 'Chơi tiếp 🌾';
+    start.insertAdjacentHTML('afterend', '<button class="new-game">Ván mới</button>');
+    const fresh = q<HTMLButtonElement>(card, '.new-game');
+    fresh.addEventListener('click', () => {
+      if (!fresh.classList.contains('confirm')) {
+        fresh.classList.add('confirm');
+        fresh.textContent = 'Xoá làng cũ? Bấm lần nữa';
+        return;
+      }
+      clearSave();
+      location.reload();
+    });
   }
 
   /** Thêm thẻ cho người mới (sinh ra, đến làng), bỏ thẻ người đã mất. */
@@ -497,9 +536,9 @@ export class Hud {
 
   private renderDiscoveries() {
     const s = this.scene.state;
-    const era = ERAS[Math.min(ERAS.length - 1, s.discovered.size)];
+    const era = ERAS[eraIndex(s.discovered)];
     q(this.root, '.disc-body').innerHTML = `
-      <div class="eras">${ERAS.map((e, i) => `<span class="era${i <= s.discovered.size ? ' on' : ''}">${e.icon} ${e.name}</span>`).join('<i>›</i>')}</div>
+      <div class="eras">${ERAS.map((e, i) => `<span class="era${i <= eraIndex(s.discovered) ? ' on' : ''}">${e.icon} ${e.name}</span>`).join('<i>›</i>')}</div>
       <p class="disc-now">Làng đang ở <b>${era.name.toLowerCase()}</b>. Phát kiến do chính dân làng tìm ra trong lúc sống và làm việc.</p>
       <ul class="discs">
         ${DISC_ORDER.map((id) => {
@@ -607,7 +646,7 @@ export class Hud {
     const key = [...s.discovered].join();
     if (key === this.discKey) return;
     this.discKey = key;
-    const era = ERAS[Math.min(ERAS.length - 1, s.discovered.size)];
+    const era = ERAS[eraIndex(s.discovered)];
     this.eraChip.textContent = `${era.icon} ${era.name}`;
     for (const k of RES_ORDER) {
       const need = RES_NEEDS[k];
@@ -779,6 +818,8 @@ export class Hud {
       const label = this.scene.canCourt(v, o) && b >= 35 ? '💕 Đang tìm hiểu' : b >= 60 ? 'Bạn thân' : 'Bạn bè';
       rows.push(row(label, o));
     }
+    const dog = this.scene.dogOf(v);
+    if (dog) rows.push(`<li class="note">🐕 ${dog.name} — chó nhà${dog.owner === v ? ', lúc nào cũng lẽo đẽo theo chân' : ''}</li>`);
     if (v.needsHome) rows.push('<li class="note">🏠 Đang chờ làng dựng nhà riêng</li>');
     return rows.join('') || '<li class="note">Chưa thân với ai — tối ra bếp lửa trò chuyện sẽ có bạn</li>';
   }

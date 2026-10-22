@@ -277,7 +277,87 @@ function drawBoar(c: Ctx) {
   line(c, 4.5, 12, 2, 15, '#4a3428', 1.2);
 }
 
+/** Chó vàng giữ nhà, quay sang phải. */
+function drawDog(c: Ctx, lying: boolean) {
+  const fur = '#d9a54a';
+  const dark = '#b07a2e';
+  if (lying) {
+    ell(c, 15, 13, 13, 2.5, 'rgba(0,0,0,0.2)');
+    ell(c, 13, 9.5, 10, 4.5, fur);
+    line(c, 4, 9, 1, 6, dark, 2);
+    ell(c, 23, 9, 5, 4, fur);
+    poly(c, [20, 6, 21, 2, 23.5, 5.5], dark);
+    ell(c, 27.5, 10, 2.4, 1.8, fur);
+    circle(c, 29.5, 9.8, 0.9, '#2a1a12');
+    line(c, 22.5, 8.5, 24.5, 8.5, '#2a1a12', 0.8);
+    for (const x of [16, 20]) ell(c, x + 4, 13, 3, 1.3, fur);
+    return;
+  }
+  ell(c, 15, 20.5, 11, 2, 'rgba(0,0,0,0.2)');
+  for (const x of [7, 10, 18, 21]) rrect(c, x, 12, 2.6, 8, 1, dark);
+  ell(c, 14, 11, 9.5, 4.8, fur);
+  ell(c, 13, 13.5, 6, 2, '#f0d08a');
+  line(c, 5, 10, 1.5, 4.5, fur, 2.2);
+  ell(c, 24, 7, 4.8, 4.2, fur);
+  poly(c, [21, 4.5, 21.8, 0, 24.5, 3.5], dark);
+  ell(c, 28.5, 8.5, 2.6, 2, '#e8bf6a');
+  circle(c, 30.6, 8, 1, '#2a1a12');
+  circle(c, 25.5, 6, 0.9, '#111');
+}
+
+/** Trâu đen, sừng cong, quay sang phải. */
+function drawBuffalo(c: Ctx) {
+  ell(c, 24, 31, 18, 3, 'rgba(0,0,0,0.22)');
+  for (const x of [10, 15, 30, 35]) rrect(c, x, 18, 4, 12, 1.5, '#2e2a28');
+  for (const x of [10, 15, 30, 35]) rrect(c, x, 28, 4, 2.5, 1, '#1a1716');
+  ell(c, 23, 17, 15, 8, '#4a4542');
+  ell(c, 22, 13, 12, 4, '#5a5450');
+  line(c, 8, 14, 4, 22, '#4a4542', 2);
+  ell(c, 4, 23, 1.5, 2.5, '#2e2a28');
+  // đầu và sừng
+  ell(c, 40, 17, 6.5, 6, '#4a4542');
+  ell(c, 45, 20, 3.5, 3, '#6e6764');
+  circle(c, 46.5, 19.5, 0.7, '#1a1716');
+  circle(c, 41, 15, 1, '#111');
+  c.strokeStyle = '#d9d0bc';
+  c.lineWidth = 2.2;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(37, 12);
+  c.quadraticCurveTo(30, 6, 34, 2);
+  c.moveTo(42, 12);
+  c.quadraticCurveTo(48, 6, 45, 2);
+  c.stroke();
+  ell(c, 36, 14, 2.5, 1.4, '#3a3532', -0.5);
+}
+
+/** Cái cày gỗ kéo sau lưng trâu. */
+function drawPlow(c: Ctx) {
+  line(c, 2, 4, 18, 14, '#7a5634', 2);
+  line(c, 14, 4, 18, 14, '#6e4a2a', 2);
+  poly(c, [16, 12, 22, 16, 15, 16], '#9a9a90');
+  line(c, 2, 4, 1, 1, '#7a5634', 1.6);
+}
+
 // ---------------------------------------------------------------- công trình
+
+/** Chuồng trâu: hàng rào tre bao quanh, góc có mái rạ che mưa nắng, máng cỏ. */
+function drawPen(c: Ctx) {
+  ell(c, 36, 60, 34, 4, 'rgba(0,0,0,0.18)');
+  rrect(c, 4, 28, 64, 32, 3, '#a58a5a');
+  for (let i = 0; i < 18; i++) circle(c, 8 + ((i * 37) % 56), 32 + ((i * 23) % 24), 1.2, '#8a7448');
+  // mái rạ góc chuồng
+  rrect(c, 40, 24, 4, 22, 1, '#6e4a2a');
+  rrect(c, 62, 24, 4, 22, 1, '#6e4a2a');
+  poly(c, [34, 26, 70, 26, 66, 10, 38, 10], '#c9a85a');
+  for (let x = 40; x < 66; x += 3) line(c, x, 11, x - 1, 26, 'rgba(120,90,40,0.5)', 1);
+  // máng cỏ
+  rrect(c, 8, 44, 18, 6, 2, '#7a5634');
+  for (let x = 10; x < 25; x += 3) line(c, x, 45, x + 1, 41, '#7fae4a', 1.4);
+  // hàng rào tre
+  for (let x = 4; x <= 68; x += 6) line(c, x, 60, x, 34, '#b8a050', 2);
+  for (const y of [40, 50]) line(c, 3, y, 69, y, '#9a8540', 1.6);
+}
 
 function drawHouse(c: Ctx) {
   ell(c, 36, 80, 35, 5, 'rgba(0,0,0,0.18)');
@@ -512,6 +592,15 @@ function drawField(c: Ctx, stage: number) {
   for (let i = 0; i < 6; i++) line(c, 8 + r() * 44, 8 + r() * 48, 14 + r() * 44, 8 + r() * 48, 'rgba(210,235,235,0.35)', 1);
   line(c, 32, 4, 32, 60, 'rgba(110,100,60,0.35)', 2);
   if (stage === 0) return;
+  if (stage === 4) {
+    // Ruộng trâu vừa cày: đất lật lên thành luống.
+    rrect(c, 4, 4, 56, 56, 2, '#7a6a48');
+    for (let y = 8; y < 60; y += 5) {
+      line(c, 5, y, 59, y + 0.8, '#5e5034', 2);
+      line(c, 5, y + 2, 59, y + 2.6, 'rgba(160,140,100,0.6)', 1);
+    }
+    return;
+  }
   const cols: Record<number, [string, string, number]> = {
     1: ['#6fbf45', '#8ad35a', 4],
     2: ['#4f9a35', '#6fbf45', 8],
@@ -759,6 +848,48 @@ function drawTorch(c: Ctx) {
   for (const y of [3.5, 5.5, 7.5]) line(c, 3, y, 9, y + 0.6, '#3a2616', 0.8);
 }
 
+/** Diều giấy hình thoi, có đuôi tua. */
+function drawKite(c: Ctx) {
+  poly(c, [12, 1, 22, 11, 12, 19, 2, 11], '#d63a2a');
+  poly(c, [12, 1, 22, 11, 12, 11], '#e8b13a');
+  poly(c, [2, 11, 12, 19, 12, 11], '#e8b13a');
+  line(c, 12, 1, 12, 19, '#7a4a2a', 0.9);
+  line(c, 2, 11, 22, 11, '#7a4a2a', 0.9);
+  c.strokeStyle = '#d63a2a';
+  c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(12, 19);
+  c.quadraticCurveTo(16, 24, 11, 29);
+  c.stroke();
+  for (const [x, y] of [
+    [14, 22],
+    [13, 26],
+  ])
+    poly(c, [x - 2, y, x + 2, y - 1, x + 1, y + 2], '#3f7ab6');
+}
+
+/** Bàn ô ăn quan kẻ trên nền đất: mười ô dân, hai ô quan, sỏi làm quân. */
+function drawOAnQuan(c: Ctx) {
+  ell(c, 24, 10, 23, 8, 'rgba(120,85,45,0.28)');
+  c.strokeStyle = '#6e4e2e';
+  c.lineWidth = 1;
+  c.strokeRect(10, 4, 28, 12);
+  line(c, 10, 10, 38, 10, '#6e4e2e', 1);
+  for (let x = 15.6; x < 38; x += 5.6) line(c, x, 4, x, 16, '#6e4e2e', 1);
+  for (const [cx, start] of [
+    [10, Math.PI / 2],
+    [38, -Math.PI / 2],
+  ] as const) {
+    c.beginPath();
+    c.arc(cx, 10, 6, start, start + Math.PI);
+    c.stroke();
+  }
+  const r = mulberry32(3);
+  for (let i = 0; i < 24; i++) circle(c, 11 + r() * 26, 5 + r() * 10, 0.9, r() < 0.5 ? '#f0ead8' : '#9d9886');
+  circle(c, 6.5, 10, 1.8, '#e8e0c8');
+  circle(c, 41.5, 10, 1.8, '#e8e0c8');
+}
+
 /** Võng gai mắc giữa hai cọc tre trước nhà. */
 function drawHammock(c: Ctx) {
   ell(c, 30, 38, 24, 3, 'rgba(0,0,0,0.2)');
@@ -933,6 +1064,10 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'lua', 36, 30, drawCampfire);
   make(scene, 'mieu', 40, 57, drawShrine);
   for (let s = 0; s < 4; s++) make(scene, `ruong${s}`, 64, 64, (c) => drawField(c, s));
+  make(scene, 'ruongCay', 64, 64, (c) => drawField(c, 4));
+  make(scene, 'chuong', 72, 64, drawPen);
+  make(scene, 'trau', 50, 34, drawBuffalo);
+  make(scene, 'plow', 24, 18, drawPlow);
   make(scene, 'lo', 40, 48, drawKiln);
   make(scene, 'cho', 72, 64, drawMarket);
   make(scene, 'dinh', 80, 84, drawCommunalHouse);
@@ -945,6 +1080,10 @@ export function createTextures(scene: Phaser.Scene) {
   make(scene, 'peach', 36, 46, drawPeach);
   make(scene, 'hammock', 60, 40, drawHammock);
   make(scene, 'torch', 12, 32, drawTorch);
+  make(scene, 'kite', 24, 30, drawKite);
+  make(scene, 'oaq', 48, 20, drawOAnQuan);
+  make(scene, 'dog', 32, 23, (c) => drawDog(c, false));
+  make(scene, 'dogLie', 32, 16, (c) => drawDog(c, true));
   make(scene, 'flame', 20, 28, drawFlame);
 
   make(scene, 'glow', 128, 128, (c) =>

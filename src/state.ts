@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { DAY_LENGTH, MONTHS_PER_YEAR, START_HOUR } from './config';
 import type { BuildingId, ResKey } from './data';
 import type { DiscId } from './discoveries';
+import type { SavedState } from './save';
 
 export type Cost = Partial<Record<ResKey, number>>;
 
@@ -12,7 +13,7 @@ export interface HistoryEntry {
 }
 
 export class GameState {
-  res: Record<ResKey, number> = { go: 12, tre: 6, rom: 0, dat: 0, gach: 0, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0 };
+  res: Record<ResKey, number> = { go: 12, tre: 6, rom: 0, dat: 0, gach: 0, thit: 0, ca: 0, chuoi: 8, thitNuong: 3, caNuong: 0, thoc: 0, com: 0, gom: 0, doDan: 0 };
   /** Những phát kiến làng đã tìm ra. */
   discovered = new Set<DiscId>();
   /** Vật phẩm làng đã từng có — cho bộ sưu tập. */
@@ -36,13 +37,50 @@ export class GameState {
     bricks: 0,
     straw: 0,
     upgraded: 0,
-    built: { lua: 0, kho: 0, nha: 0, mieu: 0, ruong: 0, lo: 0, cho: 0, dinh: 0 } as Record<BuildingId, number>,
+    woven: 0,
+    plowed: 0,
+    built: { lua: 0, kho: 0, nha: 0, mieu: 0, ruong: 0, chuong: 0, lo: 0, cho: 0, dinh: 0 } as Record<BuildingId, number>,
   };
   /** Điểm Phúc của Thành Hoàng — dùng cho quyền năng và báo mộng. */
   phuc = 30;
   phucMax = 100;
   rainUntil = 0;
   fishUntil = 0;
+
+  toSave(): SavedState {
+    return {
+      res: { ...this.res },
+      discovered: [...this.discovered],
+      seenRes: [...this.seenRes],
+      drought: this.drought,
+      lastRain: this.lastRain,
+      time: this.time,
+      stats: this.stats,
+      phuc: this.phuc,
+      phucMax: this.phucMax,
+      rainUntil: this.rainUntil,
+      fishUntil: this.fishUntil,
+      history: this.history,
+    };
+  }
+
+  load(s: SavedState) {
+    Object.assign(this.res, s.res);
+    this.discovered = new Set(s.discovered);
+    this.seenRes = new Set(s.seenRes);
+    this.drought = s.drought;
+    this.lastRain = s.lastRain;
+    this.time = s.time;
+    // Gộp từng lớp: bản lưu cũ có thể thiếu công trình mới (chuồng trâu…) — giữ số 0 mặc định cho chúng.
+    const { built, ...rest } = s.stats as typeof this.stats;
+    Object.assign(this.stats, rest);
+    Object.assign(this.stats.built, built);
+    this.phuc = s.phuc;
+    this.phucMax = s.phucMax;
+    this.rainUntil = s.rainUntil;
+    this.fishUntil = s.fishUntil;
+    this.history = s.history;
+  }
 
   get raining() {
     return this.time < this.rainUntil;
